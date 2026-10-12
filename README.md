@@ -98,7 +98,7 @@ jwselect, bmat(B) vmat(V) cells(C) nunits(500) ///
 
 When using the method, please cite the accompanying working paper:
 
-Kim, Doosoo. 2026. *Model-Based Interpretation of Pretrend Tests in Difference-in-Differences*. Working paper.
+Kim, Doosoo. 2026. *From Pretrend Tests to Preperiod Selection in Difference-in-Differences*. Working paper.
 
 Please also report the software version used. Software citation metadata is provided in [`CITATION.cff`](CITATION.cff).
 
