@@ -1,0 +1,17 @@
+v 3
+d jwselect 0.3.0 (hotfix 6): preperiod selection after jwdid
+d 06oct2026. Numerical reselection focused inference; explicit legacy envelope.
+f jwselect.ado
+f _jwselect_jwdid.ado
+f _jwselect_display.ado
+F _jwselect_mata.do
+f jwselect_estat.ado
+f jwselect_p.ado
+f jwselect.sthlp
+f _jwselect_load.ado
+f _jwselect_jobguard.ado
+f _jwselect_lockrelease.ado
+f jwselect_worker.ado
+f jwselect_collect.ado
+f jwselect_worker.sthlp
+f jwselect_collect.sthlp

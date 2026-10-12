@@ -1,4 +1,5 @@
 # jwselect
+
 **Preperiod selection and minimum-distance estimation in Stata**  
 Doosoo Kim ([doosoonet@gmail.com](mailto:doosoonet@gmail.com))  
 Version 0.3.0 (hotfix 6)

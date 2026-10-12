@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it and the accompanying paper listed in README.md."
+type: software
+title: "jwselect: Preperiod selection and minimum-distance estimation in Stata"
+authors:
+  - family-names: Kim
+    given-names: Doosoo
+    email: doosoonet@gmail.com
+version: "0.3.0-hotfix6"

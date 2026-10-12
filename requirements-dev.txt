@@ -1,0 +1,4 @@
+# Dependencies for independent Python checks; not required to run jwselect.
+# Checks were verified with NumPy 2.3.5 and SciPy 1.17.0 on Python 3.12.
+numpy
+scipy
