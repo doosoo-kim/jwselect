@@ -1,5 +1,5 @@
 {smcl}
-{* *! jwselect 0.3.0 06oct2026}{...}
+{* *! jwselect 0.4.0 23oct2026}{...}
 {title:jwselect_worker -- Run prepared focused-inference search jobs}
 
 {p 4 4 2}

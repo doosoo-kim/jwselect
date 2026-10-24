@@ -12,7 +12,7 @@ local numerical reps(1999) optreps(199) optstarts(2) optmaxeval(80) seed(913)
 
 // First-call autoload, correlated covariance, and baseline/WBIC regression guard.
 jwselect, `input' select(manual)
-mata: assert(jw_version()=="0.3.0-divided3")
+mata: assert(jw_version()=="0.4.0-joint1")
 mata: jw030_equal("e(b)","JW_EB_BASE",1e-10)
 mata: jw030_equal("e(V)","JW_EV_BASE",1e-10)
 jwselect, `input' select(wbic) candidates(all)

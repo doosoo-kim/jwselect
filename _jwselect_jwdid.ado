@@ -1,4 +1,4 @@
-*! jwselect 0.1.0: read-only adapter for jwdid 2.201 / estat 2.2
+*! jwselect 0.4.0 23oct2026: read-only adapter for jwdid 2.201 / estat 2.2
 program define _jwselect_jwdid, rclass
     version 15.1
     syntax [, VCE(string)]

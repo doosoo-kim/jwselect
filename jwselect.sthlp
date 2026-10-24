@@ -1,5 +1,5 @@
 {smcl}
-{* *! jwselect 0.3.0 06oct2026}{...}
+{* *! jwselect 0.4.0 23oct2026}{...}
 {title:jwselect -- Select preperiod restrictions after jwdid}
 
 {p 4 4 2}
@@ -10,7 +10,7 @@ and release tests require Stata 17.
 
 {p 8 12 2}
 {cmd:jwselect} [{cmd:,}
-{opt select(manual|wbic|focused)}
+{opt select(manual|wbic|focused)} {opt wbicscope(cohort|joint)}
 {opt baseline(cohort|common)} {opt anticipation(#)}
 {opt focus(cohort|aggregate|both)}
 {opt candidates(nested|all)}
@@ -30,6 +30,9 @@ and release tests require Stata 17.
 
 {p 8 12 2}
 {cmd:estat} {cmd:design}|{cmd:selection}|{cmd:scores}|{cmd:covariance}|{cmd:cells}|{cmd:inference}
+
+{p 8 12 2}
+{cmd:estat pretrend} [{cmd:,} {opt selected} {opt prematrix(P)} {opt output(#)}]
 
 {title:Description}
 
@@ -93,17 +96,28 @@ P has two columns: cohort, calendar time. Do not list baseline dates.
 Omitting P means baseline-only estimation for every cohort.
 
 {p 4 4 2}
-{cmd:select(wbic)} is the default. Within each cohort, minimize
-Wald - r*ln(N), where r is the number of optional restrictions and N is the
-independent-unit count. The final cohort/cell/aggregate estimates use JOINT MD
-with the union of the selected restrictions. Thus another cohort's restriction
-can affect a cohort estimate through the joint covariance.
+{cmd:select(wbic)} is the default. With {cmd:wbicscope(cohort)} (default),
+select a candidate within each cohort by minimizing Wald - r*ln(N), where r
+is the number of optional restrictions and N is the independent-unit count.
+The final cohort/cell/aggregate estimates use JOINT MD with the union of the
+selected restrictions. Thus another cohort's restriction can affect a cohort
+estimate through the joint covariance.
+
+{p 4 4 2}
+{cmd:select(wbic) wbicscope(joint)} minimizes the same criterion over complete
+joint configurations, using the full covariance across cohorts and dates.
+The joint Wald statistic equals the covariance-compatible MD J statistic.
+The selected configuration is then used in joint MD for every output.
+Joint WBIC can select different restrictions than cohort-wise WBIC.
+{cmd:wbicscope()} is a WBIC selection option; it does not change focused FMSC.
 
 {p 4 4 2}
 {cmd:select(focused)} minimizes FMSC = v0 - 2*gain + adjustment^2 in the
 sampling-covariance scale. This is the draft's asymptotic-covariance score
 divided by N; it gives the same minimizer. The squared bias correction is
-untruncated. Baseline-only wins exact ties when it is tied for first.
+untruncated. The first stored candidate wins exact ties. Generated and custom
+local families put baseline-only first; a supplied jointmatrix() retains its
+first-occurrence row order and prepends baseline-only only if absent.
 
 {p 4 4 2}
 {cmd:focus(cohort)} selects for each cohort's displayed mean using that cohort's
@@ -132,14 +146,60 @@ and inspect {cmd:estat design} to obtain the map, then restore jwdid or reuse
 matrix inputs for the final call.
 
 {p 4 4 2}
-Aggregate-focused search uses the Cartesian product of local families unless
+Joint WBIC and aggregate-focused search use the Cartesian product of local families unless
 {cmd:jointmatrix(JM)} supplies a prespecified binary matrix with K columns in
 hmap order. Each row of JM is a complete joint configuration; it need not be
-a Cartesian-product member. The empty row is inserted if absent; duplicates
-are coalesced. {cmd:maxcand(4096)} limits each local family and
+a Cartesian-product member. The empty row is prepended only if absent; duplicates
+are coalesced in first-occurrence order. The first stored candidate wins ties. {cmd:maxcand(4096)} limits each local family and
 {cmd:maxjoint(4096)} limits the joint family. Exceeding a limit causes an error;
-there is no truncation or greedy approximation. Explicit candidate loading
-storage can be substantial for large designs.
+there is no truncation or greedy approximation. For K_g eligible optional dates per cohort, the joint
+Cartesian family has product(K_g+1) nested configurations or 2^sum(K_g)
+all-subset configurations. The joint cap can bind even when every local
+family is below maxcand(). Explicit candidate loading storage can be substantial.
+
+{title:Joint pretrend tests}
+
+{p 4 4 2}
+{cmd:estat pretrend} jointly tests all eligible optional preperiod-minus-baseline
+contrasts using their full covariance. {cmd:estat pretrend, prematrix(P)} tests
+a prespecified subset; P has two columns, cohort and calendar time, and must
+contain only eligible optional dates. The maintained baseline is never tested.
+
+{p 4 4 2}
+{cmd:estat pretrend, selected} tests the restriction mask for a reported output.
+For focused results, {cmd:output(#)} is REQUIRED with {cmd:selected}; inspect
+{cmd:e(output_map)} to identify the row. For manual/WBIC results it defaults
+to output 1 because all outputs share the same joint restriction set.
+{cmd:output()} is allowed only with {cmd:selected}. The options {cmd:selected}
+and {cmd:prematrix()} are mutually exclusive. For {cmd:agg_cohort}, the
+selected mask is the union of the cohort-selected restrictions. The reported
+J is the compatible joint-MD criterion for that tested set, not a residual
+criterion evaluated at the separately adjusted focused estimate.
+
+{p 4 4 2}
+For restriction contrasts h and their sampling covariance V_h, the command
+computes Wald = h' inv(V_h) h, and reports J equal to Wald using the
+covariance-weighted MD identity. J is not independently computed by refitting
+or minimizing a second model. The equality requires the compatible MD model, with unrestricted postperiod
+effects and the same covariance construction. The test checks that the
+chosen restriction covariance is positive definite; returning J through the
+identity does not independently certify all full-covariance or linear-model
+assumptions. With r prespecified restrictions,
+the reference distribution is chi-square(r) under the maintained assumptions.
+A selected-set p-value is a diagnostic, not automatically valid after
+outcome-dependent selection; the same caution applies to a data-chosen custom
+P. This command neither tests the baseline identifying assumption nor supplies
+postselection inference for treatment effects.
+
+{p 4 4 2}
+Saved scalars are {cmd:r(chi2)}, {cmd:r(J)}, {cmd:r(df)}, {cmd:r(p)},
+{cmd:r(postselection)} (1 for {cmd:selected}, otherwise 0), and {cmd:r(output)}
+(selected output row, or 0 for all/custom).
+{cmd:r(test_set)} is all, selected, or custom. {cmd:r(table)} has columns
+{cmd:df Wald J pvalue}. {cmd:r(mask)} records the tested mask in hmap order
+when K>0; {cmd:r(preperiods)} lists tested cohort/date pairs when nonempty.
+For an empty test, df=0 and Wald=J=0, with p missing. The command preserves
+active estimation results, data, and RNG state.
 
 {title:Aggregation weights}
 
@@ -307,7 +367,8 @@ e(candidates), e(joint_candidates), e(z), e(V_z), e(loading), e(targets).
 Numerical reselection also stores e(inference_diagnostics) and
 e(inference_extrema).
 If K=0, hmap/selection/cell_selection/joint_candidates are absent.
-e(joint_candidates) is present only for aggregate-focused searches with K>0.
+e(joint_candidates) is present for joint WBIC and aggregate-focused searches
+with K>0.
 
 {p 4 4 2}
 Canonical z orders post contrasts first, optional precontrasts second.
@@ -320,6 +381,8 @@ Cohort coefficient names are cohort1, cohort2, ...; use output_map for dates.
 {p 4 4 2}
 e(scores) columns: scope (1 local, 2 joint), cohort (0 joint), candidate,
 nrestr, Wald, WBIC, estimate, se_fixed, adjustment, gain, FMSC.
+Joint WBIC rows have scope=2 and cohort=0; selection minimizes the WBIC
+column, while focused selection minimizes FMSC. The other columns are diagnostics.
 Local score estimates use local restrictions even when the final WBIC/manual
 fit uses the joint union. e(candidates) columns: cohort, local candidate ID,
 then K mask bits. e(selection) records all restrictions used by each output.
@@ -329,9 +392,9 @@ Scalars include N_units, N_observations, N_covariates, N_clusters, G, K, P,
 gap, anticipation, upstream_anticipation, level, gamma, mcerr, reps, seed,
 maxcand, maxjoint, optstarts, optmaxeval, opttol, optreps, cachemb. Matrix input leaves
 unavailable data counts missing.
-Macros record baseline, selection_method, focus, candidate_type, aggregate,
+Macros record baseline, selection_method, wbic_scope, focus, candidate_type, aggregate,
 covariance, inference, postwindow, sourcecmd, cmdline, inferoutputs,
-and prepared_directory.
+and prepared_directory. e(version) and e(build) identify the installed release.
 
 {p 4 4 2}
 For each output, e(inference_diagnostics) has four rows, one per
@@ -351,10 +414,13 @@ outputs with no active adjustment have zero counts and missing objectives.
 
 {phang2}{cmd:jwdid y x1 x2, ivar(id) tvar(year) gvar(first_treat) never method(regress)}
 {phang2}{cmd:estimates store original}
-{phang2}{cmd:jwselect, select(wbic) baseline(cohort) anticipation(0)}
+{phang2}{cmd:jwselect, select(wbic) wbicscope(joint) candidates(nested)}
+{phang2}{cmd:estat pretrend}
+{phang2}{cmd:estat pretrend, selected}
 {phang2}{cmd:estimates restore original}
 {phang2}{cmd:jwselect, select(focused) focus(both) postwindow(0 2)}
 {phang2}{cmd:estat selection}
+{phang2}{cmd:estat pretrend, selected output(1)}
 {phang2}{cmd:estat covariance}
 {phang2}{cmd:estat inference}
 {phang2}{cmd:jwselect, nocohort}
@@ -367,7 +433,9 @@ construction while leaving point estimates unchanged. Large all-subsets
 families can make these checks expensive.
 
 {p 4 4 2}
-For reproducible matrix-input examples, see {cmd:examples/matrix_demo.do}.
+For reproducible matrix-input examples, see {cmd:examples/matrix_demo.do}
+and {cmd:examples/joint_demo.do}. The new public-command test is
+{cmd:do tests/joint040_smoke.do}, also included in the release driver.
 Run {cmd:do run_release_tests.do} from the package directory in a fresh Stata 17
 session. The test clears data and estimates; save your work first.
 Require the final release PASS. No test installs or updates packages automatically.

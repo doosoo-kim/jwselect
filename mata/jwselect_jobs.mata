@@ -1,4 +1,7 @@
-/* jwselect 0.3.0: portable, resumable objective-by-start jobs.
+/* jwselect 0.4.0: portable, resumable objective-by-start jobs.
+
+   The 0.3.0 serialized-format identifiers are retained because the binary
+   layouts are unchanged; jw_version() identifies the package build.
 
    Only numeric/string matrices are serialized with fputmatrix, not opaque
    compiled code or raw observations. Prepare and serial inference consume

@@ -90,16 +90,18 @@ real matrix jw_joint_masks(struct jw_model scalar M,
     return(jw_unique_masks(C,M.k,maxjoint,1))
 }
 
-struct jw_fit scalar jw_run(struct jw_model scalar M,
+struct jw_fit scalar jw_run_scope(struct jw_model scalar M,
                             struct jw_family scalar F,
                             real matrix jointmatrix,
                             string scalar selectstr,
                             string scalar focusstr,
-                            real scalar maxjoint)
+                            real scalar maxjoint,
+                            string scalar wbicscope)
 {
     struct jw_fit scalar out
     real scalar G, m, g, i, j, r, oi, bestrow, bestscore, score,
-                isfocused, docohort, doaggregate, primaryjoint, aggindex,
+                isfocused, docohort, doaggregate, jointwbic, searchjoint,
+                primaryjoint, aggindex,
                 nout, nfamily, pos, ng, offset
     real colvector ii, localchosen, rr
     real rowvector stat, target, mask, chosenunion, A, U, unitrow,
@@ -133,6 +135,12 @@ struct jw_fit scalar jw_run(struct jw_model scalar M,
     if (focusstr!="cohort" & focusstr!="aggregate" & focusstr!="both") {
         jw_core_error("unknown focused-selection scope")
     }
+    if (wbicscope!="cohort" & wbicscope!="joint") {
+        jw_core_error("unknown Wald-BIC selection scope")
+    }
+    if (wbicscope=="joint" & selectstr!="wbic") {
+        jw_core_error("joint Wald-BIC scope requires Wald-BIC selection")
+    }
     if (selectstr=="wbic" & (M.nunit<=1 | M.nunit>=.)) {
         jw_core_error("Wald-BIC requires a finite independent-unit count greater than one")
     }
@@ -152,9 +160,11 @@ struct jw_fit scalar jw_run(struct jw_model scalar M,
     isfocused = selectstr=="focused"
     docohort = isfocused & (focusstr=="cohort" | focusstr=="both")
     doaggregate = isfocused & (focusstr=="aggregate" | focusstr=="both")
+    jointwbic = selectstr=="wbic" & wbicscope=="joint"
+    searchjoint = doaggregate | jointwbic
     primaryjoint = !isfocused | (focusstr=="aggregate")
     C = J(0,M.k,.)
-    if (doaggregate) C = jw_joint_masks(M,F,jointmatrix,maxjoint)
+    if (searchjoint) C = jw_joint_masks(M,F,jointmatrix,maxjoint)
 
     /* Every row count is known before the loops. Preserve the original
        output/family order without repeatedly copying growing matrices. */
@@ -205,9 +215,12 @@ struct jw_fit scalar jw_run(struct jw_model scalar M,
         chosenunion = (chosenunion+localmasks[g,.]):>0
     }
 
-    /* Aggregate focus evaluates the aggregate target itself for each
-       allowed JOINT restriction configuration. No greedy substitution. */
-    if (doaggregate) {
+    /* Joint WBIC evaluates the full restriction covariance for each joint
+       configuration, not a sum of cohort scores. Aggregate focus uses the
+       same candidate statistics but minimizes FMSC. The aggregate target
+       supplies reporting diagnostics only under joint WBIC; its Wald/BIC
+       criterion does not depend on aggregation weights. */
+    if (searchjoint) {
         bestrow = 1
         bestscore = .
         for (i=1; i<=rows(C); i++) {
@@ -215,14 +228,16 @@ struct jw_fit scalar jw_run(struct jw_model scalar M,
             jointA[i,.] = A
             pos++
             out.scores[pos,.] = (2,0,i,stat)
-            if (stat[8]<bestscore) {
+            if (jointwbic) score = stat[3]
+            else score = stat[8]
+            if (score<bestscore) {
                 bestrow = i
-                bestscore = stat[8]
+                bestscore = score
             }
         }
         mask = C[bestrow,.]
         oi = bestrow
-        if (focusstr=="aggregate") chosenunion = mask
+        if (jointwbic | focusstr=="aggregate") chosenunion = mask
     }
 
     /* A common selected joint system is factored once for every reporting
@@ -358,4 +373,15 @@ struct jw_fit scalar jw_run(struct jw_model scalar M,
     }
     if (pos!=nfamily) jw_core_error("internal candidate family row count mismatch")
     return(out)
+}
+
+/* Preserve the six-argument numerical API and its cohort-wise WBIC default. */
+struct jw_fit scalar jw_run(struct jw_model scalar M,
+                            struct jw_family scalar F,
+                            real matrix jointmatrix,
+                            string scalar selectstr,
+                            string scalar focusstr,
+                            real scalar maxjoint)
+{
+    return(jw_run_scope(M,F,jointmatrix,selectstr,focusstr,maxjoint,"cohort"))
 }

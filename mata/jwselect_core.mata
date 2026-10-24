@@ -77,6 +77,32 @@ real scalar jw_fixed_variance(real matrix V, real rowvector A)
     return(max((0,v)))
 }
 
+/* Joint zero-precontrast test with the SAME covariance as the MD fit.
+   J is reported through the Wald/MD identity, not a second fitted model.
+   An empty restriction set has no chi-squared test (p is missing). */
+real rowvector jw_pretrend_test(real colvector z, real matrix V,
+                               real rowvector mask, real scalar k)
+{
+    real scalar r, W, pv
+
+    if (missing(k) | k<0 | k!=floor(k) | k>rows(z) |
+        cols(z)!=1 | rows(V)!=rows(z) | cols(V)!=rows(z) |
+        cols(mask)!=k | rows(mask)!=1) {
+        jw_core_error("incompatible joint pretrend-test dimensions")
+    }
+    if (hasmissing(z) | hasmissing(V) | hasmissing(mask)) {
+        jw_core_error("joint pretrend-test inputs must be finite")
+    }
+    if (sum((mask:!=0):&(mask:!=1))>0) {
+        jw_core_error("joint pretrend-test mask must be binary")
+    }
+    r = sum(mask)
+    W = jw_wald(V,z,mask,k)
+    pv = .
+    if (r>0) pv = chi2tail(r,W)
+    return((r,W,W,pv))
+}
+
 /* Columns: r, Wald, WBIC, estimate, fixed-model SE, adjustment,
    covariance(baseline,adjustment), focused score. */
 /* A is also returned by reference so selection and inference families can

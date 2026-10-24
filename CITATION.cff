@@ -6,4 +6,5 @@ authors:
   - family-names: Kim
     given-names: Doosoo
     email: doosoonet@gmail.com
-version: "0.3.0-hotfix6"
+version: "0.4.0"
+date-released: "2026-10-23"

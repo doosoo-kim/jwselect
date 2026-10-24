@@ -46,7 +46,7 @@ void jw_stata()
     C=jw_candidates(M,selector,st_local("candidates"),jw_optional_matrix("prematrix"),
         jw_optional_matrix("candmatrix"),strtoreal(st_local("maxcand")))
     joint=jw_optional_matrix("jointmatrix")
-    F=jw_run(M,C,joint,selector,focus,strtoreal(st_local("maxjoint")))
+    F=jw_run_scope(M,C,joint,selector,focus,strtoreal(st_local("maxjoint")),st_local("wbicscope"))
     outputs=J(1,0,.)
     if (st_local("inferoutputs")!="") outputs=strtoreal(tokens(st_local("inferoutputs")))
     if (cols(outputs)>0) {
@@ -121,7 +121,7 @@ void jw_stata()
     jw_put("outweights",M.w)
     jw_put("outscores",F.scores)
     jw_put("outfamily",(C.owners,C.ids,C.masks))
-    if (selector=="focused" & focus!="cohort") {
+    if ((selector=="focused" & focus!="cohort") | (selector=="wbic" & st_local("wbicscope")=="joint")) {
         joint=jw_joint_masks(M,C,joint,strtoreal(st_local("maxjoint")))
         jw_put("outjoint",joint)
         if (M.k>0) jw_names("outjoint",hnames,0)
@@ -195,8 +195,63 @@ void jw_collect_stata()
     st_matrix(st_local("settings"),jw_jobs_settings(path))
 }
 
+/* Joint testing uses the saved canonical contrasts without refitting,
+   changing e(), or drawing random numbers. Calendar-date subsets map only
+   to eligible optional contrasts; maintained baselines are never tested. */
+void jw_pretrend_stata()
+{
+    real colvector z, ii
+    real matrix V, hm, requested, selections
+    real rowvector mask, result
+    real scalar k, oi, i, h
+    string scalar testset
+
+    z = st_matrix("e(z)")'
+    V = st_matrix("e(V_z)")
+    k = st_numscalar("e(K)")
+    mask = J(1,k,1)
+    hm = J(0,2,.)
+    if (k>0) hm = st_matrix("e(hmap)")
+    if (rows(hm)!=k | cols(hm)!=2) {
+        jw_core_error("saved optional-preperiod map is incompatible")
+    }
+    testset = st_local("testset")
+    if (testset=="selected") {
+        oi = strtoreal(st_local("output"))
+        if (k>0) {
+            selections = st_matrix("e(selection)")
+            if (oi<1 | oi>rows(selections) | cols(selections)!=k) {
+                jw_core_error("selected output has no compatible restriction mask")
+            }
+            mask = selections[oi,.]
+        }
+    }
+    else if (testset=="custom") {
+        requested = st_matrix(st_local("prematrix"))
+        if (cols(requested)!=2 | hasmissing(requested)) {
+            jw_core_error("prematrix() must contain finite cohort and calendar-time pairs")
+        }
+        mask = J(1,k,0)
+        for (i=1; i<=rows(requested); i++) {
+            h = jw_findcell(hm,requested[i,1],requested[i,2],st_numscalar("e(gap)"))
+            if (h==0) {
+                jw_core_error("prematrix() contains an ineligible date or maintained baseline")
+            }
+            if (mask[h]==1) jw_core_error("prematrix() contains duplicate cohort-time pairs")
+            mask[h] = 1
+        }
+    }
+    result = jw_pretrend_test(z,V,mask,k)
+    st_matrix(st_local("testtable"),result)
+    if (k>0) st_matrix(st_local("testmask"),mask)
+    if (sum(mask)>0) {
+        ii = vec(selectindex(mask'))
+        st_matrix(st_local("testperiods"),hm[ii,.])
+    }
+}
+
 /* Completion marker must be LAST: a partially compiled bridge is not ready. */
 string scalar jw_version()
 {
-    return("0.3.0-divided3")
+    return("0.4.0-joint1")
 }

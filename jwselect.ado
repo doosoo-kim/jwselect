@@ -1,4 +1,4 @@
-*! jwselect 0.3.0 06oct2026
+*! jwselect 0.4.0 23oct2026
 program define jwselect, eclass
     version 16.1
     if "`e(cmd)'" == "jwselect" {
@@ -33,7 +33,7 @@ program define _jwselect_work, eclass
     version 16.1
     syntax [, BMAT(name) VMAT(name) CELLS(name) NUNits(real 0) ///
         GAP(real 1) BASEline(string) ANTicipation(integer 0) ///
-        SELECT(string) FOCUS(string) CANDidates(string) ///
+        SELECT(string) WBICScope(string) FOCUS(string) CANDidates(string) ///
         PREMatrix(name) CANDMatrix(name) JOINTMatrix(name) ///
         POSTWindow(numlist integer min=2 max=2) ///
         AGGregate(string) AGGWeights(name) VCE(string) ///
@@ -46,15 +46,22 @@ program define _jwselect_work, eclass
 
     if "`baseline'" == "" local baseline cohort
     if "`select'" == "" local select wbic
+    local wbicscope_explicit = ("`wbicscope'" != "")
+    if "`wbicscope'" == "" local wbicscope cohort
     if "`focus'" == "" local focus both
     if "`candidates'" == "" local candidates nested
     if "`aggregate'" == "" local aggregate equalcohort
     if "`inference'" == "" local inference auto
-    foreach opt in baseline select focus candidates aggregate vce inference {
+    foreach opt in baseline select wbicscope focus candidates aggregate vce inference {
         local `opt' = lower("``opt''")
     }
     if !inlist("`baseline'", "cohort", "common") error 198
     if !inlist("`select'", "manual", "wbic", "focused") error 198
+    if !inlist("`wbicscope'", "cohort", "joint") error 198
+    if `wbicscope_explicit' & "`select'" != "wbic" {
+        di as err "wbicscope() requires select(wbic)"
+        exit 198
+    }
     if !inlist("`focus'", "cohort", "aggregate", "both") error 198
     if !inlist("`candidates'", "nested", "all") error 198
     if !inlist("`aggregate'", "equalcohort", "equalcell") error 198
@@ -98,8 +105,8 @@ program define _jwselect_work, eclass
         di as err "manual selection uses prematrix(), not candidate matrices"
         exit 198
     }
-    if "`jointmatrix'" != "" & ("`select'" != "focused" | "`focus'" == "cohort") {
-        di as err "jointmatrix() requires select(focused) and focus(aggregate or both)"
+    if "`jointmatrix'" != "" & !( ("`select'" == "focused" & "`focus'" != "cohort") | ("`select'" == "wbic" & "`wbicscope'" == "joint") ) {
+        di as err "jointmatrix() requires joint Wald-BIC or aggregate-focused selection"
         exit 198
     }
     foreach mat in bmat vmat cells prematrix candmatrix jointmatrix aggweights {
@@ -156,7 +163,7 @@ program define _jwselect_work, eclass
     // Check the entry point as well as the completion/version marker.
     capture mata: assert(findexternal("jw_stata()") != NULL)
     local entryrc = _rc
-    capture mata: assert(jw_version() == "0.3.0-divided3")
+    capture mata: assert(jw_version() == "0.4.0-joint1")
     local versionrc = _rc
     if `entryrc' | `versionrc' {
         capture mata: assert(findexternal("jw_version()") != NULL)
@@ -178,7 +185,7 @@ program define _jwselect_work, eclass
         }
         capture mata: assert(findexternal("jw_stata()") != NULL)
         local entryrc = _rc
-        capture mata: assert(jw_version() == "0.3.0-divided3")
+        capture mata: assert(jw_version() == "0.4.0-joint1")
         local versionrc = _rc
         if `entryrc' | `versionrc' {
             di as err "The Mata loader ended without defining the complete jwselect module"
@@ -221,7 +228,7 @@ program define _jwselect_work, eclass
         ereturn matrix hmap = `outh'
         ereturn matrix selection = `outselection'
         ereturn matrix cell_selection = `outcellsel'
-        if "`select'" == "focused" & "`focus'" != "cohort" ereturn matrix joint_candidates = `outjoint'
+        if ("`select'" == "focused" & "`focus'" != "cohort") | ("`select'" == "wbic" & "`wbicscope'" == "joint") ereturn matrix joint_candidates = `outjoint'
     }
     ereturn matrix b_cells = `outbcells'
     ereturn matrix V_cells = `outVcells'
@@ -264,6 +271,7 @@ program define _jwselect_work, eclass
     ereturn local upstream_stat `upstream_stat'
     ereturn local baseline `baseline'
     ereturn local selection_method `select'
+    if "`select'" == "wbic" ereturn local wbic_scope `wbicscope'
     ereturn local focus `focus'
     ereturn local candidate_type `candidates'
     if "`candmatrix'" != "" ereturn local candidate_type custom
@@ -281,6 +289,8 @@ program define _jwselect_work, eclass
     ereturn local cmdline `"jwselect `0'"'
     ereturn local estat_cmd jwselect_estat
     ereturn local predict jwselect_p
+    ereturn local version 0.4.0
+    ereturn local build 0.4.0-joint1
     ereturn local cmd jwselect
     _jwselect_display, `nocohort' `celleffects'
 end

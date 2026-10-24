@@ -1,6 +1,6 @@
 v 3
-d jwselect 0.3.0 (hotfix 6): preperiod selection after jwdid
-d 06oct2026. Numerical reselection focused inference; explicit legacy envelope.
+d jwselect 0.4.0: preperiod selection after jwdid
+d 23oct2026. Joint Wald-BIC selection and joint Wald-J pretrend testing.
 f jwselect.ado
 f _jwselect_jwdid.ado
 f _jwselect_display.ado

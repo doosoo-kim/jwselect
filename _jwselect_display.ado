@@ -1,4 +1,4 @@
-*! jwselect display 0.2.0
+*! jwselect display 0.4.0 23oct2026
 program define _jwselect_display
     version 16.1
     syntax [, NOCohort CELLEffects]
@@ -16,11 +16,13 @@ program define _jwselect_display
         if "`e(baseline)'" == "common" local base "Common: q-gap*(1+delta)"
     }
     local selection "Cohort-wise Wald-BIC"
+    if "`e(selection_method)'" == "wbic" & "`e(wbic_scope)'" == "joint" local selection "Joint Wald-BIC across cohorts"
     if "`e(selection_method)'" == "manual" local selection "Manually specified preperiods"
     if "`e(selection_method)'" == "focused" local selection "Focused selection"
     local family "Nested sets: recent to earlier"
     if "`e(candidate_type)'" == "all" local family "All subsets of eligible preperiods"
     if "`e(candidate_type)'" == "custom" local family "User-specified candidate sets"
+    if "`e(wbic_scope)'" == "joint" local family "Joint configurations; see estat selection"
     if "`e(selection_method)'" == "manual" local family "Not searched (manual selection)"
     local agg "Uniform weights across cohorts"
     if "`e(aggregate)'" == "equalcell" local agg "Uniform weights across post cells"
@@ -145,7 +147,9 @@ program define _jwselect_periods
             as txt "  baseline " as res %10.0g `baseperiod' ///
             as txt "  over-identifying: " as res "`periods'"
     }
-    if inlist("`e(selection_method)'", "manual", "wbic") ///
+    if "`e(selection_method)'" == "wbic" & "`e(wbic_scope)'" == "joint" ///
+        di as txt "  The final joint MD fit uses the joint Wald-BIC selected restrictions."
+    else if inlist("`e(selection_method)'", "manual", "wbic") ///
         di as txt "  The final joint MD fit uses the union of these cohort-specific restrictions."
     if "`e(selection_method)'" == "focused" & "`e(focus)'" == "aggregate" ///
         di as txt "  Cohort estimates use the jointly selected aggregate-focused restrictions."
