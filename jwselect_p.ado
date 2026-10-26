@@ -1,4 +1,4 @@
-*! jwselect predict guard 0.4.0 23oct2026
+*! jwselect predict guard 0.5.0 23oct2026
 program define jwselect_p
     version 16.1
     di as err "jwselect stores treatment-effect summaries; observation-level predict is not defined"

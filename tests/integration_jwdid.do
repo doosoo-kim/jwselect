@@ -1,4 +1,4 @@
-*! jwselect 0.2.0: upstream integration checks (UNEXECUTED in build environment)
+*! jwselect 0.5.0: upstream linear integration checks
 *! Run from the package root. DESTRUCTIVE TO MEMORY: save user work first.
 *! No dependency is installed or updated by this test.
 version 16.1

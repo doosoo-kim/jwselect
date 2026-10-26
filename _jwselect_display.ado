@@ -1,9 +1,11 @@
-*! jwselect display 0.4.0 23oct2026
+*! jwselect display 0.5.0 23oct2026
 program define _jwselect_display
     version 16.1
     syntax [, NOCohort CELLEffects]
     if "`e(cmd)'" != "jwselect" error 301
-    di as txt _n "jwselect: J and Wald-based preperiod selection after extended TWFE"
+    di as txt _n "jwselect: preperiod selection and covariance-weighted moment adjustment"
+    local source `e(source_estimator)'
+    if "`source'" == "" local source jwdid
     local base "Cohort-specific (g-1)"
     if "`e(baseline)'" == "common" local base "Common (q-1)"
     if e(anticipation)>0 {
@@ -34,6 +36,7 @@ program define _jwselect_display
     if "`e(inference)'" == "none" local inf "CIs and p-values disabled"
     di as txt _n "Research design and method"
     di as txt "{hline 38}{c TT}{hline 39}"
+    di as txt "Source estimator" _col(39) "{c |} " as res "`source' `e(source_method)'"
     di as txt "Independent units" _col(39) "{c |} " as res %9.0g e(N_units)
     if !missing(e(N_observations)) di as txt "Observations" _col(39) "{c |} " as res %9.0g e(N_observations)
     if !missing(e(N_clusters)) di as txt "Clusters" _col(39) "{c |} " as res %9.0g e(N_clusters)
@@ -62,14 +65,19 @@ program define _jwselect_display
     di as txt "{hline 38}{c BT}{hline 39}"
     di as txt "Preperiod counts are cohort-period pairs, excluding maintained baselines."
     di as txt "Each cohort effect averages its included post-treatment cells equally."
+    if "`e(restriction_scale)'" == "outcome_placebo" {
+        di as txt "Optional restrictions set average outcome-scale placebo effects to zero."
+        di as txt "J equals Wald for this moment-adjustment criterion; no upstream model is refitted."
+    }
     if "`e(baseline)'" == "common" di as txt "q denotes the earliest treatment cohort."
     tempname upstream
     capture matrix `upstream' = e(upstream_table)
     local matrices : e(matrices)
     if strpos(" `matrices' ", " upstream_table ") {
-        di as txt _n "Initial cohort-time event-study estimates (from jwdid)"
+        di as txt _n "Initial cohort-time estimates (from `source')"
         di as txt "Time is calendar time. Zero-SE reference rows are normalizations."
-        di as txt "Inference below is copied from jwdid; it precedes preperiod selection."
+        if "`source'" == "csdid" di as txt "Pointwise normal inference below uses csdid's analytical covariance, before selection."
+        else di as txt "Inference below is copied from `source'; it precedes preperiod selection."
         local statlabel "`e(upstream_stat)'"
         if !inlist("`statlabel'", "t", "z") local statlabel "b/se"
         di as txt %7s "Cohort" " " %7s "Time" " {c |} " ///

@@ -1,9 +1,9 @@
-*! jwselect 0.4.0: installed-package smoke check, 24oct2026.
+*! jwselect 0.5.0: installed-package smoke check, 24oct2026.
 *! Run in a FRESH Stata 17+ session from a separate writable folder.
 *! Clears data and estimates. Save your work first.
 *! Example (replace both paths):
 *! cd "C:/work/install_check"
-*! do "C:/downloads/jwselect-0.4.0/run_installed_check.do" "C:/downloads/jwselect-0.4.0"
+*! do "C:/downloads/jwselect-0.5.0/run_installed_check.do" "C:/downloads/jwselect-0.5.0"
 *! The argument is the absolute path of the extracted SOURCE package.
 *! This script never changes adopath, installs packages, or reads source fixtures.
 version 17.0
@@ -50,7 +50,7 @@ program define JW_INSTALL_CHECK
     which jwselect, all
     // These are every executable/help file named by jwselect.pkg. Their
     // resolved locations must be outside the supplied source directory.
-    foreach required in jwselect.ado _jwselect_jwdid.ado _jwselect_display.ado ///
+    foreach required in jwselect.ado _jwselect_jwdid.ado _jwselect_csdid.ado _jwselect_display.ado ///
         _jwselect_mata.do jwselect_estat.ado jwselect_p.ado jwselect.sthlp ///
         _jwselect_load.ado _jwselect_jobguard.ado _jwselect_lockrelease.ado ///
         jwselect_worker.ado jwselect_collect.ado jwselect_worker.sthlp jwselect_collect.sthlp {
@@ -89,8 +89,8 @@ program define JW_INSTALL_CHECK
 
     jwselect, bmat(JIC_B) vmat(JIC_V) cells(JIC_C) nunits(100) ///
         select(wbic) wbicscope(joint) candidates(all) maxjoint(4)
-    assert "`e(version)'"=="0.4.0"
-    assert "`e(build)'"=="0.4.0-joint1"
+    assert "`e(version)'"=="0.5.0"
+    assert "`e(build)'"=="0.5.0-adapters1"
     assert "`e(wbic_scope)'"=="joint"
     assert e(G)==2 & e(P)==2 & e(K)==2
     mata: assert(max(abs(st_matrix("e(b)")-(.7,.7,.7)))<1e-10)
@@ -117,14 +117,14 @@ local stamp = strtrim(string(clock("`c(current_date)' `c(current_time)'", "DMYhm
 local logfile "jwselect_installed_check_`stamp'.log"
 capture log close jwinstall
 log using `"`logfile'"', text name(jwinstall)
-display as text "Installed-package check: jwselect 0.4.0-joint1"
+display as text "Installed-package check: jwselect 0.5.0-adapters1"
 display as text "Started: `c(current_date)' `c(current_time)'"
 capture noisily JW_INSTALL_CHECK, source(`"`sourcefolder'"')
 local check_rc = _rc
 if `check_rc' {
-    display as error "jwselect 0.4.0 installed-package check: FAIL (return code `check_rc')"
+    display as error "jwselect 0.5.0 installed-package check: FAIL (return code `check_rc')"
 }
-else display as result "jwselect 0.4.0 installed-package check: PASS"
+else display as result "jwselect 0.5.0 installed-package check: PASS"
 display as text "Log: `c(pwd)'/`logfile'"
 log close jwinstall
 capture program drop JW_INSTALL_CHECK

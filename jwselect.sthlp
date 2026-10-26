@@ -1,6 +1,6 @@
 {smcl}
-{* *! jwselect 0.4.0 23oct2026}{...}
-{title:jwselect -- Select preperiod restrictions after jwdid}
+{* *! jwselect 0.5.0 26oct2026}{...}
+{title:jwselect -- Select preperiod restrictions after csdid or jwdid}
 
 {p 4 4 2}
 Main command for Stata 16.1 or later; the prepared-workflow commands
@@ -17,7 +17,7 @@ and release tests require Stata 17.
 {opt prematrix(name)} {opt candmatrix(name)} {opt jointmatrix(name)}
 {opt postwindow(# #)}
 {opt aggregate(equalcohort|equalcell)} {opt aggweights(name)}
-{opt vce(unconditional|conditional)}
+{opt vce(unconditional|conditional|supplied)}
 {opt level(#)} {opt inference(auto|reselect|envelope|none)}
 {opt gamma(#)} {opt mcerr(#)} {opt reps(#)} {opt seed(#)}
 {opt optstarts(#)} {opt optmaxeval(#)} {opt opttol(#)} {opt optreps(#)}
@@ -41,12 +41,15 @@ The command obtains the unaggregated cohort-time margins and their complete
 joint covariance, forms baseline treatment-effect contrasts and optional
 preperiod contrasts, selects restrictions, and performs minimum-distance (MD)
 adjustment. It stores complete joint fixed-selection covariance matrices.
-It uses {cmd:estat attgt}, not the already aggregated {cmd:estat event} vector.
+It reads unaggregated {cmd:csdid} results or joint {cmd:jwdid estat attgt}
+margins. Already aggregated {cmd:estat event} vectors are not supported.
 
 {p 4 4 2}
 The baseline is g-gap*(1+delta) with {cmd:baseline(cohort)} (default), or
 q-gap*(1+delta) with {cmd:baseline(common)}, where q is the earliest treated
-cohort in the input. {cmd:anticipation(delta)} defaults to zero. This differs
+cohort in the input. For linear and matrix inputs, {cmd:anticipation(delta)}
+defaults to zero. The CS-DR and nonlinear adapters retain the upstream cohort
+baseline and infer delta when omitted; explicit mismatches are rejected. This differs
 from jwdid's upstream {cmd:anticipation()} convention, whose default 1 omits
 g-gap. Optional preperiods satisfy t<g-gap*delta and exclude the baseline.
 The baseline is a maintained identifying period, never a selectable restriction.
@@ -58,7 +61,7 @@ are included, so cohorts may have different exposure horizons.
 {cmd:postwindow(0 2)}, for example, requires event times 0, 1, and 2 in EVERY
 cohort. Missing requested support causes an error rather than a changed target.
 
-{title:Direct jwdid support and covariance}
+{title:Direct linear jwdid support and covariance}
 
 {p 4 4 2}
 The initial adapter supports a balanced, regularly spaced panel, unweighted
@@ -67,9 +70,9 @@ linear fits, actual never-treated units coded gvar=0, full
 The outcome and covariates must be plain numeric variables, and covariates must
 be constant within individual. Explicitly generated dummy covariates are allowed.
 The default reghdfe backend and {cmd:method(regress)} are supported as described
-below. Nonlinear fits, repeated cross-sections, custom treatment/regression
-modes, weights, and other cluster designs require separately validated matrix
-inputs; they are not silently accepted by this adapter.
+below. Supported nonlinear fits are described separately. Repeated cross-sections,
+custom treatment/regression modes, weights, and other cluster designs require
+separately validated matrix inputs; they are not silently accepted.
 
 {p 4 4 2}
 {cmd:vce(unconditional)} is the direct-input default and requests
@@ -87,6 +90,74 @@ The adapter leaves the data unchanged. Successful jwselect estimation replaces
 e() in the usual Stata manner; use {cmd:estimates store} before calling it if
 you want to compare specifications. On failure, original estimation results
 and the RNG state are restored. The RNG state is also restored on success.
+
+{title:Optional CS-DR adapter}
+
+{p 4 4 2}
+Install {cmd:csdid} separately using {browse "https://psantanna.com/csdid/":the authors' installation guide}.
+The adapter targets the 2.0.1 API and requires version 2.0.1 or later in the 2.x
+line; older SSC 1.x releases are rejected. The pinned 2.0.1 source commit is
+{cmd:f98bcea0691b1670c409bb7e3cc81d60705b4f84}; the README gives its installation
+command. Record {cmd:csdid version} for reproducibility. No dependency is installed by
+{cmd:jwselect}; the matrix interface needs neither {cmd:csdid} nor {cmd:jwdid}.
+
+{p 4 4 2}
+Run {cmd:csdid} with {cmd:method(dr) nevertreated base_period(universal) analytical pointwise}.
+The supported sample is an unweighted balanced panel with positive integer,
+unit-spaced calendar time, actual never-treated controls coded zero, and plain
+numeric covariates constant within unit. Omit extra clustering or use
+{cmd:cluster(ivar)}; higher-level clusters are unsupported. Keep the original
+estimation data. Call {cmd:jwselect} on unaggregated ATT(g,t) results, before
+posting an aggregation. Bootstrap covariance, varying bases, not-yet-treated
+controls, and unsupported samples are rejected.
+
+{p 4 4 2}
+{cmd:vce(supplied)} is the only CS-DR covariance convention and is the default
+for that source. The adapter retains the full analytical influence-function
+covariance, including cross-cohort and cross-period terms. It reconstructs
+structural-zero reference cells from the upstream cell metadata.
+{cmd:baseline(cohort)} is required; an omitted {cmd:anticipation()} is inferred
+from {cmd:csdid}'s value, and an explicit value must match it.
+
+{title:Optional nonlinear jwdid adapter}
+
+{p 4 4 2}
+{cmd:method(logit)} and {cmd:method(poisson)} are supported under the balanced,
+unweighted, never-treated, unit-clustered and time-invariant-covariate contract
+above. Other nonlinear methods, including {cmd:ppmlhdfe}, are not supported.
+The adapter obtains joint outcome-scale ATT and placebo margins using
+{cmd:estat attgt}; nonlinear regression coefficients are not used as ATTs.
+{cmd:vce(unconditional)} is the default; {cmd:vce(conditional)} conditions on
+the observed covariate distribution for the margins calculation.
+
+{p 4 4 2}
+Retain {cmd:baseline(cohort)} and the upstream normalization. If
+{cmd:anticipation()} is omitted, the adapter uses the recorded {cmd:jwdid}
+anticipation value minus one. An explicit incompatible value, or
+{cmd:baseline(common)}, is rejected. The original linear/matrix rebasing
+behavior is unchanged.
+
+{title:Moment interpretation for CS-DR and nonlinear inputs}
+
+{p 4 4 2}
+The maintained estimate d is an outcome-scale ATT; optional h values are zero
+average outcome-scale placebo effects. For a fixed candidate, the adjustment
+is d - Cov(d,h) inv(Var(h)) h, using the same joint covariance throughout.
+This is a Gaussian covariance-weighted moment adjustment. Its Wald--J identity
+belongs to the canonical quadratic MD problem with unrestricted post effects
+and h=0. It does not assert equality with a constrained nonlinear refit or
+CS-DR re-estimation at alternative base periods.
+
+{p 4 4 2}
+With covariate interactions, zero average nonlinear placebo effects can be
+weaker than setting every index-pretrend coefficient to zero. Identification,
+joint asymptotic normality and consistent covariance are required. CS-DR
+robustness conditions apply to the baseline and each placebo moment used;
+the backend name alone does not establish those conditions. The MD adjustment
+can leave natural outcome bounds; results are not clipped. Fixed
+{cmd:jwselect} aggregation weights need not reproduce the upstream commands'
+population-share aggregates. Upstream confidence intervals do not adjust for
+{cmd:jwselect}'s selection step.
 
 {title:Selection}
 
@@ -142,7 +213,7 @@ actual cohort and its remaining K columns are binary masks in the order of
 {cmd:e(hmap)}. A local candidate can select only its own cohort's columns.
 Supply at least one row for every cohort. The empty candidate is inserted first;
 duplicate nonempty candidates are rejected. Run baseline-only manual estimation
-and inspect {cmd:estat design} to obtain the map, then restore jwdid or reuse
+and inspect {cmd:estat design} to obtain the map, then restore the upstream fit or reuse
 matrix inputs for the final call.
 
 {p 4 4 2}
@@ -160,8 +231,8 @@ family is below maxcand(). Explicit candidate loading storage can be substantial
 {title:Joint pretrend tests}
 
 {p 4 4 2}
-{cmd:estat pretrend} jointly tests all eligible optional preperiod-minus-baseline
-contrasts using their full covariance. {cmd:estat pretrend, prematrix(P)} tests
+{cmd:estat pretrend} jointly tests all eligible optional preperiod contrasts
+(or outcome-scale placebo moments for the new adapters) using their full covariance. {cmd:estat pretrend, prematrix(P)} tests
 a prespecified subset; P has two columns, cohort and calendar time, and must
 contain only eligible optional dates. The maintained baseline is never tested.
 
@@ -183,7 +254,7 @@ covariance-weighted MD identity. J is not independently computed by refitting
 or minimizing a second model. The equality requires the compatible MD model, with unrestricted postperiod
 effects and the same covariance construction. The test checks that the
 chosen restriction covariance is positive definite; returning J through the
-identity does not independently certify all full-covariance or linear-model
+identity does not independently certify the identification or full-covariance
 assumptions. With r prespecified restrictions,
 the reference distribution is chi-square(r) under the maintained assumptions.
 A selected-set p-value is a diagnostic, not automatically valid after
@@ -394,7 +465,12 @@ maxcand, maxjoint, optstarts, optmaxeval, opttol, optreps, cachemb. Matrix input
 unavailable data counts missing.
 Macros record baseline, selection_method, wbic_scope, focus, candidate_type, aggregate,
 covariance, inference, postwindow, sourcecmd, cmdline, inferoutputs,
-and prepared_directory. e(version) and e(build) identify the installed release.
+and prepared_directory. Source metadata are e(source_estimator),
+e(source_version), e(source_method), e(source_model), and e(restriction_scale).
+The source estimator is matrix, csdid, or jwdid. e(source_version) is empty
+when the source does not expose a verified version, including jwdid; retain
+{cmd:which jwdid} output separately. e(version) and e(build) identify the
+installed release.
 
 {p 4 4 2}
 For each output, e(inference_diagnostics) has four rows, one per
@@ -411,6 +487,25 @@ need not use the point from the matching objective row. Normal-inference
 outputs with no active adjustment have zero counts and missing objectives.
 
 {title:Examples}
+
+{phang2}{cmd:csdid y x1 x2, ivar(id) time(year) gvar(first_treat) method(dr) nevertreated base_period(universal) analytical pointwise cluster(id)}
+{phang2}{cmd:estimates store CS_SOURCE}
+{phang2}{cmd:jwselect, select(wbic) postwindow(0 2)}
+{phang2}{cmd:estimates restore CS_SOURCE}
+{phang2}{cmd:jwselect, select(manual) postwindow(0 2)}
+
+{phang2}{cmd:jwdid y x1 x2, ivar(id) tvar(year) gvar(first_treat) never method(logit) cluster(id)}
+{phang2}{cmd:estimates store NL_SOURCE}
+{phang2}{cmd:jwselect, select(wbic)}
+{phang2}{cmd:estimates restore NL_SOURCE}
+{phang2}{cmd:jwselect, select(manual)}
+
+{p 4 4 2}
+For an exponential conditional mean use {cmd:method(poisson)} in the source fit.
+Self-contained examples are {cmd:examples/csdid_demo.do} and
+{cmd:examples/nonlinear_demo.do}. Restore the stored source fit before each
+new direct specification. The following example retains the linear workflow.
+
 
 {phang2}{cmd:jwdid y x1 x2, ivar(id) tvar(year) gvar(first_treat) never method(regress)}
 {phang2}{cmd:estimates store original}
@@ -434,7 +529,7 @@ families can make these checks expensive.
 
 {p 4 4 2}
 For reproducible matrix-input examples, see {cmd:examples/matrix_demo.do}
-and {cmd:examples/joint_demo.do}. The new public-command test is
+and {cmd:examples/joint_demo.do}. The joint public-command test is
 {cmd:do tests/joint040_smoke.do}, also included in the release driver.
 Run {cmd:do run_release_tests.do} from the package directory in a fresh Stata 17
 session. The test clears data and estimates; save your work first.

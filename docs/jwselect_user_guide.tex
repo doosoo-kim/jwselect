@@ -1,0 +1,1363 @@
+\documentclass[11pt]{article}
+\usepackage[letterpaper,margin=.85in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern,amsmath,amssymb,booktabs,tabularx,longtable,array}
+\usepackage{xcolor,listings,fancyhdr,enumitem,etoolbox,needspace}
+\definecolor{navy}{HTML}{23465C}
+\definecolor{codebg}{HTML}{F5F7F8}
+\usepackage[colorlinks=true,linkcolor=navy,urlcolor=navy]{hyperref}
+\hypersetup{pdftitle={jwselect: Full User Guide, 0.5.0},
+ pdfauthor={Doosoo Kim},pdfsubject={Installation, selection, inference and divided computation}}
+\lstset{basicstyle=\ttfamily\small,columns=fullflexible,keepspaces=true,
+ breaklines=true,showstringspaces=false,frame=single,
+ backgroundcolor=\color{codebg},rulecolor=\color{black!15},
+ xleftmargin=3pt,xrightmargin=3pt,framesep=5pt,aboveskip=9pt,belowskip=9pt}
+\BeforeBeginEnvironment{lstlisting}{\par\noindent\begin{minipage}{\linewidth}}
+\AfterEndEnvironment{lstlisting}{\end{minipage}\par}
+\preto{\subsection}{\Needspace{7\baselineskip}}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt}
+\setlength{\emergencystretch}{3em}
+\setlist{itemsep=2pt,topsep=4pt}
+\newcommand{\cmd}[1]{\texttt{#1}}
+\pagestyle{fancy}\fancyhf{}
+\fancyhead[L]{\small\texttt{jwselect} | Full User Guide}
+\fancyhead[R]{\small 0.5.0}
+\fancyfoot[C]{\small\thepage}
+\setlength{\headheight}{14pt}
+\renewcommand{\headrulewidth}{.3pt}
+\title{\texttt{jwselect}: Full User Guide\\\large Version 0.5.0}
+\author{Doosoo Kim (\href{mailto:doosoonet@gmail.com}{doosoonet@gmail.com})}
+\date{26 October 2026}
+\begin{document}
+\maketitle\vspace{-1em}
+\cmd{jwselect} selects optional preperiod restrictions and estimates treatment
+ effects by minimum distance (MD), using unpooled cohort--time estimates and
+ their full joint covariance. It provides manual, cohort-wise or joint Wald--BIC, and focused
+ selection, plus joint pretrend tests. The maintained baseline is chosen by the researcher; selection
+ does not establish its validity.
+
+Version 0.5.0 adds optional CS-DR and nonlinear DiD adapters.
+This full manual covers installation, the input routes, all public
+ options, interpretation, numerical inference, and computation across Stata
+ sessions. Sections~1--4 cover routine estimation. Sections~5--7 explain focused
+ inference and divided computation; Sections~8--10 cover results, checks, and
+ troubleshooting. Appendix~A is an option reference. Run multiline examples
+ together from Stata's Do-file Editor.
+
+\tableofcontents
+\clearpage
+\section{Installation and updating}
+The main estimation command requires Stata 16.1 or later. Preparation,
+workers, collection, and the release-test driver require Stata 17 or later.
+Extract the current distribution or GitHub source archive. The installation
+path is the directory containing \cmd{jwselect.pkg}, not the ZIP file
+or its enclosing directory:
+\begin{lstlisting}
+net install jwselect, from("C:/path/to/jwselect") replace
+which jwselect
+which jwselect_worker
+which jwselect_collect
+findfile _jwselect_mata.do
+help jwselect
+\end{lstlisting}
+Save your work and restart Stata after replacing an older release. Mata
+functions already loaded in a session do not automatically change when files
+on disk are replaced. Every worker must use the same release as preparation
+and collection. Keep a production run's executable files unchanged until it
+finishes; install a new release in a separate extracted directory/session.
+
+The matrix interface requires neither upstream package. For the direct
+linear or nonlinear adapter, install \cmd{jwdid} and its dependencies separately:
+\begin{lstlisting}
+ssc install require, replace
+ssc install ftools, replace
+ssc install reghdfe, replace
+ssc install hdfe, replace
+net install jwdid, ///
+    from("https://raw.githubusercontent.com/friosavila/stpackages/main") replace
+\end{lstlisting}
+These upstream dependencies are separate from \cmd{jwselect}. Its adapters
+support narrower sets of models than the upstream commands themselves.
+See Section~2 for its restrictions. Upstream installation and covariance
+sources are listed at the end of this guide.
+
+The CS-DR adapter targets \cmd{csdid} 2.0.1 and accepts its supported 2.x API
+from version 2.0.1 onward. This pins the source used for this release:
+\begin{lstlisting}
+net install csdid, ///
+    from("https://raw.githubusercontent.com/pedrohcgs/csdid-stata/f98bcea0691b1670c409bb7e3cc81d60705b4f84") replace
+csdid version
+\end{lstlisting}
+For an existing installation, follow the
+\href{https://psantanna.com/csdid/}{authors' installation guide} first to avoid
+conflicting registrations. Record the complete URL and reported version.
+The older SSC 1.x interface is unsupported; version 2.x needs no \cmd{drdid}.
+No \cmd{jwselect} command installs or updates an upstream package.
+
+
+If your archive includes the \cmd{tests} directory, run short installation
+checks from that package root:
+\begin{lstlisting}
+cd "C:/path/to/jwselect"
+do tests/smoke.do
+do tests/reselect_smoke.do
+\end{lstlisting}
+For the complete version-0.5 integration gate in a fresh Stata 17 session,
+run \cmd{do} with \path{run_release_tests.do} from the package root. Its final success
+message ends with \cmd{release tests: PASS}. Section~9 describes a separate concurrent-session check. Tests replace data in memory; save your work first. Deliberately
+rejected invalid input is part of some tests: use the final test status to
+distinguish an expected rejection from an unexpected failure.
+
+\section{Inputs and basic workflow}
+\subsection{Directly after a supported linear \texttt{jwdid} fit}
+\begin{lstlisting}
+jwdid y x1 x2, ivar(id) tvar(year) gvar(first_treat) ///
+    never method(regress) cluster(id)
+estimates store JW_SOURCE
+jwselect, select(wbic) candidates(all) postwindow(0 2)
+estat design
+estat selection
+estimates store JW_WBIC
+\end{lstlisting}
+Replace the variable names with yours. This example requires event times
+0, 1, and 2 for every cohort. It explicitly uses all subsets; the command
+ default is \cmd{candidates(nested)}. Code never-treated units as
+\cmd{first\_treat = 0}. Before changing a selection option,
+restore the upstream fit:
+\begin{lstlisting}
+estimates restore JW_SOURCE
+jwselect, select(manual) postwindow(0 2)
+estimates store JW_BASE
+\end{lstlisting}
+This second specification is baseline only. Restore \cmd{JW\_SOURCE} before
+\emph{each} new direct-input specification, including focused selection,
+a changed baseline, or a different horizon.
+After \cmd{jwselect}, a bare \cmd{jwselect} redisplays its results.
+It does not refit the original model. Successful estimation replaces
+\cmd{e()} in the usual Stata manner.
+
+The linear adapter supports balanced, regularly spaced panels; actual
+never-treated controls coded zero; unweighted linear fits; full cohort--time
+heterogeneity; clustering at the individual identifier; and plain numeric
+covariates that are constant within individual. Full heterogeneity corresponds
+to \cmd{hettype(timecohort)}. Generate dummies or transformations explicitly;
+the adapter does not accept factor-variable or time-series notation. Unsupported weights,
+time-varying covariates, nonlinear specifications outside the scoped support
+below, and other cluster designs require separately validated matrix inputs. In particular, a weighted application with time-varying controls requires validated matrix
+inputs; it is not accepted merely because its first stage used \cmd{jwdid}.
+
+\cmd{vce(unconditional)} is the \cmd{jwdid}-input default. It requests the joint covariance from
+\cmd{estat attgt} with \cmd{vce(unconditional)} and requires the upstream
+\cmd{method(regress)} fit. Explicit \cmd{vce(conditional)} uses the usual
+margins covariance and also supports the default \cmd{reghdfe} backend.
+The distinction concerns uncertainty in covariate averaging, not whether
+standard errors are clustered. Covariate averaging, where needed, occurs
+upstream; the MD stage uses the extracted estimates and covariance.
+
+\subsection{CS-DR through \texttt{csdid}}
+\begin{lstlisting}
+csdid y x1 x2, ivar(id) time(year) gvar(first_treat) ///
+    method(dr) nevertreated base_period(universal) ///
+    analytical pointwise cluster(id)
+estimates store CS_SOURCE
+jwselect, select(wbic) candidates(nested) postwindow(0 2)
+estat selection
+estat pretrend
+estimates restore CS_SOURCE
+jwselect, select(manual) postwindow(0 2)
+\end{lstlisting}
+The first CS-DR adapter requires unaggregated \cmd{method(dr)} results with
+never-treated controls and a universal base. It supports unweighted balanced
+panels with positive integer, unit-spaced calendar times and plain numeric
+covariates constant within individual. Clustering may be omitted or set to
+\cmd{ivar()}; panel influence functions already account for repeated unit
+observations. Higher-level clustering, unbalanced panels, repeated cross
+sections and time-varying covariates are outside this initial contract.
+Keep the original estimation data, and call the adapter before posting an
+aggregation. Missing cells, unsupported source metadata, bootstrap covariance,
+varying bases and not-yet-treated comparison groups cause errors.
+
+\cmd{vce(supplied)} is the default and only CS-DR covariance convention.
+The adapter reads the full analytical influence-function covariance from the
+source, including cross-cohort and cross-period entries. It reconstructs
+structural-zero universal reference cells from upstream metadata and checks
+the mapping against the posted estimates. The source estimates are not
+recomputed at different bases.
+
+Use \cmd{baseline(cohort)}. Omitted \cmd{anticipation()} is inferred from
+\cmd{csdid}; an explicit value must match. Existing linear and matrix
+rebasing behavior is unchanged. Restore \cmd{CS\_SOURCE} before every new
+selection specification. See \path{examples/csdid_demo.do} for simulated data.
+
+\subsection{Nonlinear DiD through \texttt{jwdid}}
+\begin{lstlisting}
+jwdid y x1 x2, ivar(id) tvar(year) gvar(first_treat) ///
+    never method(logit) cluster(id)
+estimates store NL_SOURCE
+jwselect, select(wbic) candidates(nested) postwindow(0 2)
+estimates restore NL_SOURCE
+jwselect, select(manual) postwindow(0 2)
+\end{lstlisting}
+The supported nonlinear methods are \cmd{logit} for a binary outcome and
+\cmd{poisson} for an exponential conditional mean. They retain the balanced,
+unweighted, never-treated, unit-clustered, full-cohort--time and
+plain-time-invariant-covariate contract above. Other nonlinear methods,
+including \cmd{ppmlhdfe}, are not supported by this initial adapter.
+
+Joint \cmd{estat attgt} margins supply outcome-scale ATT and pre-treatment
+placebo estimates with their cross-covariances; nonlinear regression
+coefficients are not interpreted as outcome-scale ATTs. The default
+\cmd{vce(unconditional)} includes uncertainty from covariate averaging.
+\cmd{vce(conditional)} explicitly conditions on the observed covariate
+distribution. The adapter verifies the known zero-normalization rows, then
+sets numerical derivative residues no larger than $10^{-10}$ to exact zero.
+Materially nonzero baseline estimates or covariance entries cause an error.
+
+\cmd{baseline(cohort)} is required. Omitted \cmd{anticipation()} is inferred
+as the recorded \cmd{jwdid} anticipation minus one. An explicit mismatch or
+\cmd{baseline(common)} is rejected. Restore \cmd{NL\_SOURCE} before each new
+direct specification. See \path{examples/nonlinear_demo.do} for both methods.
+
+\subsection{Meaning of the CS-DR and nonlinear adjustments}
+For these two adapters, $\widehat d$ contains baseline outcome-scale ATTs
+and $\widehat h$ contains optional average outcome-scale placebo effects.
+For a fixed set $A$ of zero-placebo restrictions, the covariance adjustment is
+\[
+ \widetilde d_A=\widehat d-
+ \widehat V_{dh_A}\widehat V_{h_Ah_A}^{-1}\widehat h_A.
+\]
+The covariance is the joint sampling covariance of these estimates.
+This is the canonical Gaussian MD problem with unrestricted post-treatment
+effects and $h_A=0$. Its minimized quadratic statistic equals
+$\widehat h_A'\widehat V_{h_Ah_A}^{-1}\widehat h_A$. The equality is an
+identity for that compatible quadratic problem; it is not a claim that the
+procedure equals a constrained nonlinear refit or CS-DR re-estimation at
+alternative bases.
+
+With covariate interactions, zero average nonlinear placebo effects can be
+weaker than setting every index-pretrend coefficient to zero. Identification,
+joint asymptotic normality, and consistent joint covariance remain necessary.
+CS-DR robustness conditions must apply to the baseline and each placebo moment
+used; the backend name alone does not establish those conditions. The MD
+adjustment can move nonlinear ATT estimates outside their natural bounds;
+results are not clipped. The fixed \cmd{equalcohort}/\cmd{equalcell} weights
+need not reproduce \cmd{csdid}'s population-share aggregation.
+Selection and its inferential qualifications otherwise follow the common
+engine below. Upstream confidence intervals do not account for this
+selection step.
+
+\subsection{The general coefficient-and-covariance interface}
+\begin{lstlisting}
+jwselect, bmat(B) vmat(V) cells(C) nunits(500) ///
+    gap(1) select(wbic) candidates(all)
+\end{lstlisting}
+
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+Input & Required meaning \\
+\midrule
+\cmd{B} & Row or column vector of $m$ unaggregated cohort--time estimates. \\
+\cmd{V} & $m\times m$ full sampling covariance of \cmd{B}, including cross-cohort and cross-time terms. Supply the covariance itself, not $N$ times that covariance. \\
+\cmd{C} & $m\times2$ matrix of matching cohort and calendar-time rows, including normalization cells. Cohort codes are positive. \\
+\cmd{nunits()} & Number of independent units, greater than one; used in the Wald--BIC penalty. \\
+\cmd{gap()} & Time spacing; default 1. \\
+\bottomrule
+\end{tabularx}
+
+The matrix route uses \cmd{vce(supplied)}. The caller is responsible for the
+identification, target interpretation, normalization, and covariance of the
+supplied estimates. A full covariance is essential: treating cohort or time
+estimates as independent can change selection, MD weights, and inference.
+Already pooled \cmd{estat event} output generally lacks the cohort--time
+information needed for this calculation. Keep original normalization
+rows even when their estimates and covariance rows are zero. A normalization
+zero is not a precisely estimated effect. Rows may arrive in any order,
+provided \cmd{B}, \cmd{V}, and \cmd{C} match. Do not include never-treated
+rows in \cmd{C}; their comparison information is already reflected in the
+estimates and covariance. Missing values and duplicate cohort/date pairs are
+not allowed.
+
+The raw covariance can be positive semidefinite, but each used restriction
+covariance must be nonsingular. The command rejects invalid restrictions;
+it does not silently use a generalized inverse. Dates must align with
+\cmd{gap()}. Each included cohort needs its maintained baseline and at
+least one target postperiod.
+
+\subsection{A self-contained matrix example}
+This example needs no dataset or upstream estimator installation. It uses one cohort
+treated at date 4, dates 1--5, and a normalized baseline at date 3. The
+covariance is deliberately simple; retain the baseline row even though its
+estimate and covariance row are zero.
+\begin{lstlisting}
+matrix B = (.05, .10, 0, .40, .60)
+matrix V = .04*I(5)
+matrix V[3,3] = 0
+matrix C = (4,1 \ 4,2 \ 4,3 \ 4,4 \ 4,5)
+
+* Baseline only; the cohort target averages dates 4 and 5.
+jwselect, bmat(B) vmat(V) cells(C) nunits(500) ///
+    select(manual)
+estat design
+matrix list e(hmap)
+
+* Search all subsets of the two eligible dates, 1 and 2.
+jwselect, bmat(B) vmat(V) cells(C) nunits(500) ///
+    select(wbic) candidates(all)
+estat selection
+estat scores
+\end{lstlisting}
+The baseline-only target estimate is $(.40+.60)/2=.50$.
+The maps identify optional dates 1 and 2 in that order. Here post and
+precontrasts have zero covariance, so adding restrictions does not change
+the estimate or its fixed-selection variance; a general supplied covariance
+need not have this property.
+
+To prespecify only the optional sets $\varnothing$, $\{1\}$, and $\{1,2\}$,
+use the following local family. Column 1 is the actual cohort, followed by
+one bit for each row of the unchanged \cmd{e(hmap)}:
+\begin{lstlisting}
+matrix CM = (4,0,0 \ 4,1,0 \ 4,1,1)
+jwselect, bmat(B) vmat(V) cells(C) nunits(500) ///
+    select(wbic) candmatrix(CM)
+\end{lstlisting}
+The family excludes $\{2\}$ alone. The empty local candidate is included
+once even if omitted from \cmd{CM}. In a multi-cohort input, each local mask
+has $K$ bits for the full map, and a row may select only its own cohort's
+columns. Always construct masks for the baseline, anticipation, and input
+support used in the final call.
+
+
+
+\section{Baseline, anticipation, and target horizon}
+The syntax alternatives below are explanatory; enter one choice rather than
+the vertical bar.
+\begin{lstlisting}
+jwselect, baseline(cohort|common) anticipation(#) ///
+    postwindow(first last) select(manual|wbic|focused) ///
+    candidates(nested|all)
+\end{lstlisting}
+Let $g$ be a cohort's treatment date, $q$ the earliest treated cohort in the
+input, $h$ the time spacing, and $\delta$ the anticipation allowance.
+
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+Option & Meaning \\
+\midrule
+\cmd{baseline(cohort)} & Baseline $g-h(1+\delta)$; default. \\
+\cmd{baseline(common)} & Baseline $q-h(1+\delta)$ for every cohort. \\
+\cmd{anticipation(\#)} & Nonnegative integer $\delta$; default 0 for linear/matrix inputs, inferred for the new adapters. \\
+\cmd{postwindow(0 2)} & Event times 0, 1, and 2 in every cohort. Without this option, all available post-treatment cells are used. \\
+\bottomrule
+\end{tabularx}
+
+The common-baseline and freely chosen anticipation rules in this section
+apply to linear and matrix inputs. The CS-DR and nonlinear adapters retain
+their upstream cohort baseline and infer anticipation if omitted.
+
+Write the maintained baseline as $b_g$. For annual data with $\delta=0$,
+these rules give $b_g=g-1$ and $b_g=q-1$.
+With $\delta=1$, they are $g-2$ and $q-2$. The baseline is maintained as an
+identifying restriction and is never subject to selection. Optional dates
+satisfy $t<g-h\delta$ and exclude the baseline. Positive anticipation therefore
+removes potentially affected preperiods as well as moving the baseline.
+Post-treatment targets still start at treatment onset $g$.
+
+With \cmd{baseline(common)}, eligible optional dates may be \emph{later}
+than the baseline. For example, with $q=4$, $g=7$, $h=1$, and $\delta=0$,
+the common baseline is 3; observed dates 4, 5, and 6 are still eligible for
+cohort 7. The baseline need not be the last date in the selected subset.
+Although the theory allows an arbitrary maintained preperiod, this release
+exposes only the two rules above; it has no arbitrary baseline-date option.
+
+A requested baseline and every requested post cell must exist. The command
+errors rather than silently changing the target horizon. The anticipation
+convention here differs from the upstream \cmd{jwdid} normalization option;
+do not mechanically pass the same numerical value to both commands.
+
+Event time is $(t-g)/h$. Window endpoints must be nonnegative integers in
+increasing order (equal endpoints are allowed). Every intervening event time
+is included. Without a window, cohorts can have different exposure horizons.
+Each displayed cohort effect is the equal-weight mean of its included post
+cells. To estimate a single annual cohort effect rather than a multi-year
+average, use a singleton window such as \cmd{postwindow(0 0)}. This window
+applies to all cohorts in the input; requesting inference only for a particular
+output row is a separate choice.
+
+\section{Selection methods and candidate families}
+\subsection{Baseline and manual restrictions}
+\begin{lstlisting}
+estimates restore JW_SOURCE
+jwselect, select(manual)
+
+matrix P = (4,1 \ 4,2 \ 6,3 \ 6,4)
+estimates restore JW_SOURCE
+jwselect, select(manual) prematrix(P)
+\end{lstlisting}
+Without \cmd{prematrix()}, manual selection uses only each maintained
+baseline. Matrix \cmd{P} has columns \emph{cohort, calendar time}; list only
+optional dates, never the baseline. With default baselines for cohorts 4 and 6,
+the example adds dates 1,2 and 3,4 respectively. Dates need not be consecutive.
+This example assumes cohorts 4 and 6 and the listed dates are present;
+replace these with your own cohort/date pairs. A cohort absent from \cmd{P}
+uses its baseline alone.
+\cmd{candidates()} is inactive for manual selection.
+
+\subsection{How MD uses a restriction set}
+For linear/matrix inputs, let $\widehat d$ collect postperiod-minus-baseline
+contrasts and $\widehat h_A$ optional preperiod-minus-baseline contrasts.
+For the new adapters these are baseline ATTs and placebo moments, respectively.
+For a chosen set $A$, their sampling covariance blocks give the MD calculation
+\[
+ \widehat d_A=\widehat d-V_{dh_A}V_{h_Ah_A}^{-1}\widehat h_A,
+ \qquad V_{d,A}=V_{dd}-V_{dh_A}V_{h_Ah_A}^{-1}V_{h_Ad}.
+\]
+For the empty optional set, the adjustment is zero. Cohort means and
+aggregates are linear combinations of these cell estimates. This covariance
+conditions on the chosen restrictions; data-dependent selection raises a
+separate inference problem.
+
+\subsection{Wald--BIC: cohort-wise or joint}
+\cmd{select(wbic)}, the default, minimizes
+\[
+   W_A-r_A\log N,
+\]
+where $W_A$ is the pretrend Wald statistic for candidate $A$, $r_A$ is its
+number of optional restrictions, and $N$ is the independent-unit count
+(\cmd{nunits()} for matrix input). The scope determines the candidate and
+covariance used in this criterion:
+\begin{itemize}
+\item \cmd{wbicscope(cohort)}, the unchanged default, selects one candidate
+within each cohort, using that cohort's restriction covariance. The final
+estimates use joint MD with the union of selected restrictions.
+\item \cmd{wbicscope(joint)} evaluates complete joint configurations with
+the full restriction covariance across cohorts and dates, selects one
+configuration, and uses it in joint MD for every output.
+\end{itemize}
+\begin{lstlisting}
+estimates restore JW_SOURCE
+jwselect, select(wbic) wbicscope(joint) ///
+    candidates(nested) postwindow(0 2)
+estat selection
+estat scores
+estimates store JW_JOINT
+\end{lstlisting}
+Joint WBIC can choose a different set from cohort-wise WBIC, because joint
+Wald statistics generally do not equal the sum of cohort-specific statistics.
+In both modes, a restriction from another cohort can affect a final estimate
+through cross-cohort covariance. Separate cohort-by-cohort MD fits need not
+reproduce the joint fit. \cmd{wbicscope()} changes WBIC selection only;
+it does not change the focused FMSC criterion.
+
+Under the compatible covariance-weighted MD model, $W_A$ equals the
+corresponding minimized $J$ statistic, including for joint restrictions.
+The package uses that identity; it does not independently refit a second
+model to compute $J$. Normal inference after either WBIC scope is a
+\emph{pointwise oracle approximation} under its assumptions. It is not
+uniform inference under local violations. The selected-model Wald/$J$
+p-value remains a diagnostic and does not validate the maintained baseline.
+
+\subsection{Joint pretrend testing}
+\label{sec:pretrend}
+After any successful fit, \cmd{estat pretrend} tests all eligible optional
+preperiod contrasts or the new adapters' outcome-scale placebo moments
+jointly. It uses the fitted design's
+baseline, anticipation cutoff, and full precontrast covariance; it does not
+restrict the test to the selection family or the selected set.
+\begin{lstlisting}
+* Prespecified full optional set, jointly across cohorts
+estat pretrend
+matrix list r(table)
+
+* Prespecified subset: replace these cohort/date pairs with yours
+matrix Ptest = (4,1 \ 6,3)
+estat pretrend, prematrix(Ptest)
+
+* Selected mask for a manual or Wald-BIC fit
+estat pretrend, selected
+\end{lstlisting}
+\cmd{prematrix(Ptest)} has two columns, cohort and calendar time. Every row
+must be an eligible optional date in \cmd{e(hmap)}; never list a maintained
+baseline. \cmd{selected} and \cmd{prematrix()} are mutually exclusive.
+
+After focused selection, \cmd{selected} requires an explicit output row,
+because different targets can use different masks:
+\begin{lstlisting}
+matrix list e(output_map)
+estat pretrend, selected output(1)
+\end{lstlisting}
+For manual/WBIC fits, the output defaults to 1 because their joint mask is
+common to all outputs. \cmd{output()} is allowed only with \cmd{selected};
+it specifies a row number, not a cohort date or event time.
+For the aggregate of cohort-focused estimates (\cmd{agg\_cohort}), the
+selected mask is the union of cohort-selected restrictions. The reported $J$
+is the compatible joint-MD criterion for this tested set, not a residual
+criterion evaluated at the separately adjusted focused estimate.
+
+For a nonempty test set $A$, the reported calculation is
+\[
+ W_A=\widehat h_A'V_{h_Ah_A}^{-1}\widehat h_A,
+ \qquad J_A=W_A,\qquad
+ p_A=\Pr\{\chi^2_{r_A}\geq W_A\}.
+\]
+$V_{h_Ah_A}$ is the sampling covariance, not $N$ times that covariance.
+The test checks that this restriction covariance is positive definite; it
+does not silently use a generalized inverse. The $J$ value uses the covariance-compatible MD identity, not an
+independent refit or numerical verification of that identity. The compatible
+model leaves all postperiod effects unrestricted and uses the same covariance
+for Wald and MD. Reporting $J$ through the identity does not independently
+certify the full-covariance or linear-representation assumptions. For a fixed,
+prespecified set, the chi-square reference applies under the maintained
+model and regularity assumptions. For an outcome-selected set---including
+a custom set chosen after inspecting outcomes---the reference p-value is a
+diagnostic, not automatically a valid postselection test. This command does
+not test the maintained baseline identifying assumption or replace the
+reported treatment-effect inference.
+
+The command returns \cmd{r(chi2)}, \cmd{r(J)}, \cmd{r(df)}, \cmd{r(p)}, and
+\cmd{r(table)} with columns \cmd{df Wald J pvalue}. \cmd{r(test\_set)} is
+\cmd{all}, \cmd{selected}, or \cmd{custom}; \cmd{r(postselection)} equals 1
+for \cmd{selected}, otherwise 0. The latter is a record of the requested
+mode, not a certification that a custom set was prespecified.
+\cmd{r(output)} records the selected output, or zero for all/custom tests.
+\cmd{r(mask)} records the tested mask in \cmd{e(hmap)} order when $K>0$;
+\cmd{r(preperiods)} lists tested cohort/date pairs when nonempty.
+With no restrictions, $r_A=0$, $W_A=J_A=0$, and the p-value is missing.
+The command leaves active estimation results, data, and RNG state unchanged.
+
+\subsection{Nested sets and all subsets}
+The baseline is always retained. If the optional dates are $\{1,2,3\}$:
+
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+Family & Optional sets searched \\
+\midrule
+\cmd{candidates(nested)} & $\varnothing,\{3\},\{2,3\},\{1,2,3\}$. Default: add dates from latest to earliest. \\
+\cmd{candidates(all)} & $\varnothing,\{1\},\{2\},\{3\},\{1,2\},\{1,3\},\{2,3\},\{1,2,3\}$. \\
+\bottomrule
+\end{tabularx}
+
+With $K$ optional dates there are $K+1$ nested candidates and $2^K$ exhaustive
+candidates, including baseline only. The two families coincide for $K\leq1$.
+All subsets allows gaps such as $\{1,3\}$; a nested family does not.
+Eligibility depends on the anticipation cutoff, not on whether a date precedes
+a common baseline. For $g=4$, common baseline 2, and no anticipation, the
+optional dates can be $\{1,3\}$ and the nested sequence is
+$\varnothing,\{3\},\{1,3\}$.
+
+\cmd{maxcand(4096)} is the default cap per local family;
+\cmd{maxjoint(4096)} caps a joint WBIC or aggregate-focused joint family. Exceeding a cap
+causes an error, not truncation. Raise a cap explicitly for larger prespecified
+families, subject to Stata's matrix limits and memory. For example, 14 optional dates imply 16,384 all-subset candidates and
+require at least \cmd{maxcand(16384)}. For joint WBIC and aggregate focus, local family sizes
+multiply: with $K_g$ optional dates in cohort $g$, the Cartesian joint family
+has $\prod_g(K_g+1)$ nested configurations or $2^{\sum_g K_g}$ all-subset
+configurations. For example, two cohorts with 7 optional dates each yield
+16,384 joint all-subset configurations, despite only 128 candidates per cohort.
+The joint cap can bind even when every local family is below its own cap.
+Changing to a smaller family changes the statistical procedure; changing a
+cache budget or dividing identical searches does not.
+
+\subsection{Focused point estimation and aggregation roles}
+For baseline target variance $v_0$, candidate variance $v_A$, and candidate
+precontrast adjustment $a_A\widehat h$, the focused score on the sampling
+covariance scale is
+\[
+ Q_A=(a_A\widehat h)^2+2v_A-v_0.
+\]
+This uses an untruncated bias correction. The first stored candidate wins an exact tie. Generated families and
+custom local families put baseline only first. A supplied \cmd{jointmatrix()}
+retains the first-occurrence row order; put its empty row first to retain
+that tie convention.
+Focused selection is specific to a target; the best candidate can differ
+across annual effects of the same cohort. This covariance-based bias--variance
+criterion can be computed without invoking the Wald--$J$ equality.
+
+
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+Option & Selection and reporting roles \\
+\midrule
+\cmd{focus(cohort)} & Select each cohort's restrictions for its displayed post-period mean. Aggregate the resulting cell estimates with the chosen weights. \\
+\cmd{focus(aggregate)} & Select a joint configuration for the aggregate; cohort estimates use that aggregate-selected model. They are not separately cohort-focused estimates. \\
+\cmd{focus(both)} & Default: report cohort-focused effects, their aggregate, and a separately aggregate-focused estimate of the same aggregate target. \\
+\bottomrule
+\end{tabularx}
+
+To get the focused point estimates without numerical inference:
+\begin{lstlisting}
+estimates restore JW_SOURCE
+jwselect, select(focused) focus(cohort) ///
+    candidates(all) postwindow(0 0) inference(none)
+\end{lstlisting}
+This is useful for preparation and inspection. It does not supply
+selection-adjusted confidence intervals or p-values.
+
+\subsection{Fixed aggregation weights}
+\cmd{aggregate(equalcohort)}, the default, gives every cohort weight $1/G$
+and divides its weight equally among included post cells.
+\cmd{aggregate(equalcell)} weights all included cells equally. Custom
+\cmd{aggweights(W)} overrides these defaults. \cmd{W} has columns
+\emph{cohort, calendar time, weight}, includes each target cell exactly once
+(including zero weights), and has nonnegative weights summing to one.
+\begin{lstlisting}
+matrix W = (4,4,1/6 \ 4,5,1/6 \ 4,6,1/6 \ ///
+            6,6,1/6 \ 6,7,1/6 \ 6,8,1/6)
+estimates restore JW_SOURCE
+jwselect, select(wbic) postwindow(0 2) aggweights(W)
+\end{lstlisting}
+Weights are treated as fixed. Uncertainty from estimating population shares
+or other weights is not added. A custom cell-weighted aggregate need not be
+a weighted sum of the displayed uniform cohort means.
+
+\subsection{Custom candidate families}
+\cmd{candmatrix(CM)} supplies local families. Its first column is the actual
+cohort, followed by binary masks in \cmd{e(hmap)} order. Include rows for every
+cohort; each local candidate may select only its own cohort's precontrasts.
+With $K=\cmd{e(K)}$, \cmd{CM} has $K+1$ columns. The empty candidate is
+inserted first; duplicate nonempty candidates within a local family are
+rejected. \cmd{jointmatrix(JM)} supplies
+one full joint mask per row, with no cohort column. It is available for
+\cmd{select(wbic) wbicscope(joint)} and focused selection with
+\cmd{focus(aggregate)} or \cmd{focus(both)}, and replaces the
+Cartesian product of the local families. \cmd{JM} has $K$ binary columns;
+the empty row is prepended only if absent, and duplicates are coalesced in
+first-occurrence order. Its rows need not be Cartesian-product members. Obtain the map from a baseline-only
+manual run and \cmd{estat design}; then restore the upstream fit or reuse the
+matrix input for final estimation. Families, targets, and weights should be
+specified before inspecting outcomes. Screening candidates with observed
+results and then treating the surviving family as prespecified changes the
+inference problem.
+
+\section{Inference and its numerical controls}
+\subsection{Methods}
+
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+Method & Interpretation \\
+\midrule
+Manual & Fixed-restriction Gaussian inference. \\
+Wald--BIC & Pointwise oracle Gaussian inference under the relevant assumptions. \\
+Focused, \cmd{inference(auto)} & Resolves to numerical \cmd{inference(reselect)}. \\
+Focused, \cmd{inference(envelope)} & Explicit legacy all-candidate envelope, generally more conservative. \\
+\cmd{inference(none)} & Point estimates and diagnostic fixed-selection covariance; no intervals or p-values. \\
+\bottomrule
+\end{tabularx}
+
+Focused results report \cmd{se\_fixed}, a fixed-candidate diagnostic.
+It is not a selection-adjusted normal standard error. The command does not
+post conventional \cmd{e(V)} for focused selection. Use its reported intervals
+and p-values with the numerical qualifications below; do not reconstruct
+normal intervals from \cmd{se\_fixed}.
+
+\subsection{What numerical reselection does}
+At a trial nuisance mean $u$ for the optional precontrasts, simulate the joint
+Gaussian estimation error using the supplied covariance, rerun the actual
+focused rule for each draw, and compute the error of the selected estimator.
+The observed winning candidate is not held fixed. An aggregate of
+cohort-selected effects uses the same joint draw across cohorts, sums their
+selected errors, and then computes quantiles; it does not add separately
+optimized marginal interval endpoints.
+
+The nuisance confidence region has the form
+\[
+ \mathcal U=\{u:(u-\widehat h)'Q^{-1}(u-\widehat h)
+                   \leq\chi^2_{k,1-\gamma}\},
+\]
+using the active precontrasts, their dimension $k$, and covariance $Q$. The optimizer searches
+the equivalent standardized unit ball. For
+$\alpha=1-\texttt{level}/100$ and
+$\alpha_2=\alpha-\gamma-\texttt{mcerr}>0$, four objectives are:
+\begin{enumerate}
+\item Minimize the $\alpha_2/2$ selected-error quantile.
+\item Maximize the $1-\alpha_2/2$ selected-error quantile.
+\item Maximize the selected-error left-tail probability at the observed estimate.
+\item Maximize the selected-error right-tail probability at the observed estimate.
+\end{enumerate}
+The last two searches are needed for the zero-null p-value: points with
+extreme quantiles need not maximize the relevant tail probabilities.
+
+The native Mata optimizer is a multistart projected pattern search, not
+NOMAD. Each start has a fixed budget and evolves independently. Common search
+draws make comparisons across trial values less noisy. Independent validation
+draws subsequently check all four discovered points for all four quantities.
+Exact binomial order-statistic bounds and one-sided Clopper--Pearson bounds
+allocate \cmd{mcerr()/16} across the 16 finite-point bounds for each output.
+Let $L$ be the minimum checked lower-error bound and $U$ the maximum checked
+upper-error bound over all four points. Let $p_L,p_R$ be the respective
+maxima of the checked tail-probability upper bounds. The report is
+\[
+ [\widehat\theta-U,\widehat\theta-L],\qquad
+ p=\min\{1,\gamma+\texttt{mcerr}+2\min(p_L,p_R)\}.
+\]
+The independent simulation check controls error at the discovered points.
+\textbf{It does not control error from a more extreme, unvisited nuisance
+point.} Intervals are marginal, not simultaneous bands across outputs.
+Outputs with structurally zero reporting adjustments use ordinary normal
+inference without nuisance search.
+
+\subsection{Defaults and interpretation}
+
+\begin{tabularx}{\linewidth}{@{}lrX@{}}
+\toprule
+Option & Default & Role \\
+\midrule
+\cmd{optstarts()} & 4 & Starts for each objective \\
+\cmd{optmaxeval()} & 400 & Total evaluations for each objective, across starts \\
+\cmd{opttol()} & .02 & Stopping mesh in standardized ball coordinates \\
+\cmd{optreps()} & 1,999 & Common simulation draws during search \\
+\cmd{reps()} & 19,999 & Independent validation draws \\
+\cmd{seed()} & 12,345 & Reproducible simulation seed \\
+\cmd{gamma()} & .01 & Nuisance-region error allowance \\
+\cmd{mcerr()} & .001 & Finite-point simulation error allowance \\
+\cmd{cachemb()} & 64 & Search-projection cache allowance in MB \\
+\bottomrule
+\end{tabularx}
+
+For reselection, \cmd{optstarts()} must be at least 1,
+\cmd{optmaxeval()} at least the number of starts, \cmd{optreps()} at least
+100, and $0<\texttt{opttol}<.5$. Validation draws must also be large enough
+for finite order-statistic bounds. If the command reports an infeasible
+simulation size, increase \cmd{reps()}.
+
+The confidence level defaults to Stata's current level, usually 95 percent.
+Search budgets and simulation sizes should be chosen for numerical stability,
+not to obtain a desired significance result. More validation draws improve
+finite-point Monte Carlo accuracy; they do not expand the set of nuisance
+points searched. More starts, more search draws, or a larger evaluation budget
+address different aspects of numerical approximation.
+
+A \emph{budget-exhausted} status means a start reached its assigned limit
+before its mesh stopping condition. It is not a budget overrun or a Stata
+failure. The best point found is retained. Even a mesh-converged start does
+not certify a global extremum. \cmd{opttol()} is a search-coordinate tolerance,
+not a bound on confidence-interval endpoint error.
+
+With \cmd{optstarts(8) optmaxeval(1600)}, each objective has a total budget
+of 1,600 evaluations, divided among eight starts (200 per start). It does not
+allocate 1,600 to each start. Dividing this work into eight sessions preserves
+that budget. More generally, each start receives the integer part of total
+budget divided by starts; the first starts receive one additional evaluation
+until the remainder is allocated. Raising the number of sessions alone does
+not strengthen the search.
+
+Neither inference method promises a shorter interval than baseline.
+Smaller \cmd{gamma()} enlarges the nuisance region, so lowering it need not
+shorten intervals. The legacy DKW calculation belongs only to
+\cmd{inference(envelope)}, not to current reselection inference.
+
+\subsection{Checking numerical stability}
+Inspect \cmd{estat inference}. For an important or unstable target, compare
+the same design with more starts \emph{and} a larger total budget. For example,
+compare \cmd{optstarts(4) optmaxeval(400)} with
+\cmd{optstarts(8) optmaxeval(1600)}. More starts with a fixed total budget
+leave fewer evaluations per start. Then consider more \cmd{optreps()} and
+\cmd{reps()}, smaller \cmd{opttol()}, and another seed.
+
+Compare both endpoints, the p-value, objective values, and converged-start
+counts. A large validation gap indicates simulation sensitivity at a found
+point; a budget flag calls for checking search effort. Neither measures the
+missed global extremum. Hold the target, candidate family, and statistical
+error allowances fixed when assessing numerical stability. Use a new prepared
+directory for each changed numerical configuration.
+
+\section{Efficient serial computation}
+\subsection{Compute inference only for needed outputs}
+\cmd{inferoutputs()} specifies \emph{output row numbers}, not cohort dates
+or event times. Inspect the map first:
+\begin{lstlisting}
+estimates restore JW_SOURCE
+jwselect, select(focused) focus(cohort) ///
+    postwindow(0 0) inference(none)
+matrix list e(output_map)
+
+* Suppose row 1 is the cohort effect of interest.
+estimates restore JW_SOURCE
+jwselect, select(focused) focus(cohort) postwindow(0 0) ///
+    inference(reselect) inferoutputs(1) cachemb(64) progress
+\end{lstlisting}
+The option suppresses costly inference for unrequested outputs, including an
+unused aggregate. It does not redefine the target, change the candidate family,
+or justify deleting other estimates or cross-covariance terms from the input.
+Unrequested rows retain point estimates and diagnostic standard errors, with
+inference absent. \cmd{nocohort} only changes display and should not be used
+as a substitute for controlling computation.
+
+\cmd{focus(cohort)} is suitable when only cohort-focused targets are required.
+Using \cmd{focus(both)} additionally requests aggregate-focused point selection,
+which can itself require a large joint candidate family.
+
+\subsection{Memory and progress}
+\cmd{cachemb()} controls search-projection caching per active calculation;
+it is not a total Stata RAM limit. The allowance uses decimal MB. The engine
+caches as many initial candidate-projection columns as fit the allowance and
+streams the remaining candidates in their original order. There is no
+all-or-nothing cache threshold: for 9,999 search draws, 64 MB caches 800
+double-precision candidate columns. \cmd{cachemb(0)} streams all candidates.
+Independent validation is processed in blocks rather than retaining the much
+larger complete validation-projection matrix. This numerical organization
+preserves the candidate choices and inference rule, apart from ordinary
+floating-point differences.
+
+For illustration, $9{,}999\times16{,}384$ double-precision entries alone need
+about 1.31 GB (decimal units), excluding other arrays and overhead. A large
+cache per worker may be impractical when many workers run concurrently.
+Choose cache and worker counts jointly. More workers can lose performance if
+the operating system starts paging memory to disk.
+
+\cmd{progress} reports starts and every 50 objective evaluations. A single
+evaluation can still take appreciable time for a large exhaustive family. Use it with
+visible command output; wrapping the command in \cmd{quietly} may suppress
+messages. Log silence alone is not an error. Neither a progress fraction nor
+completion of an early cohort gives a reliable overall runtime fraction when
+later cohorts have exponentially larger candidate families.
+
+\section{Divide a target across sessions}
+\subsection{Prepare once}
+The parent of the new preparation directory must already exist.
+Preparation freezes the fitted numerical objects, candidate definitions,
+search and independent validation draws, starting points, and inferential
+settings. Use a \emph{fresh} work directory for each design or numerical
+sensitivity configuration.
+\begin{lstlisting}
+estimates restore JW_SOURCE
+jwselect, select(focused) focus(cohort) ///
+    candidates(all) postwindow(0 0) ///
+    inference(none) inferoutputs(1) ///
+    optstarts(8) optmaxeval(1600) optreps(9999) ///
+    reps(49999) opttol(.01) seed(12345) ///
+    cachemb(64) prepare("C:/work/target_run01") progress
+\end{lstlisting}
+Use \cmd{maxcand(16384)} when the intended local family requires that cap.
+Preparation performs point selection but does not run the expensive search.
+Save its estimation results to retain point estimates, selected restrictions,
+and the \cmd{e(hmap)} ordering needed to interpret collected nuisance means:
+\begin{lstlisting}
+estimates save "C:/work/target_run01_estimates.ster", replace
+\end{lstlisting}
+This file is supplementary; worker and collection commands operate on the saved preparation and
+do not refit the raw-data regression.
+
+An active output creates four objectives times the number of starts: with
+eight starts, 32 search jobs. An output requiring no nuisance search is handled
+analytically. Multiple selected outputs create their own job sets. Statistical
+correlation is retained in the common prepared joint covariance and draws;
+independent computation does not require independent moments or outcomes.
+
+\subsection{Run a fixed worker partition}
+Open four Stata sessions and use one command in each:
+\begin{lstlisting}
+* Session 1
+jwselect_worker using "C:/work/target_run01", ///
+    worker(1) workers(4) cachemb(64) progress
+
+* Session 2
+jwselect_worker using "C:/work/target_run01", ///
+    worker(2) workers(4) cachemb(64) progress
+
+* Session 3
+jwselect_worker using "C:/work/target_run01", ///
+    worker(3) workers(4) cachemb(64) progress
+
+* Session 4
+jwselect_worker using "C:/work/target_run01", ///
+    worker(4) workers(4) cachemb(64) progress
+\end{lstlisting}
+Job IDs are ordered by output, objective (1--4), then start. Partitioning uses
+the original job ID even when filters are supplied. Jobs are assigned to
+workers; 32 jobs do not require 32 concurrent sessions.
+Every worker must access the same prepared directory. Completed jobs are
+saved separately. A completed-job marker is written only after its results
+are saved; repeated execution can reuse completed work. Configuration checks
+and per-job locks protect against incompatible or overlapping work. Locks
+are named \path{job_<id>.lock}; completion markers are named
+\path{job_<id>.bin.done}. Remove a stale lock only after establishing that its original worker
+process has stopped. Hotfix 6 retries removal of owned empty locks and
+reports persistent cleanup failures. Check \cmd{r(lock\_failures)} after
+workers. Successful saved searches survive a cleanup failure, but collection
+still refuses remaining locks. Once all processes using the batch have
+stopped, remove only a confirmed stale empty lock directory, never the saved
+results or preparation directory. Do not edit
+prepared inputs or completed result files by hand.
+
+For the standard partition, use the same \cmd{workers()} count and distinct
+indices. Alternatively, explicitly disjoint filtered job sets can coexist,
+including \cmd{worker(1) workers(1)} calls. To change a partition safely,
+first stop the old workers; compatible completed jobs can then be reused. A local disk is preferable for an active work directory to a
+cloud-synchronized folder whose synchronization may delay visibility of
+files. On an HPC system, choose a shared location visible to the jobs and
+observe the institution's Stata licence and scheduler requirements.
+
+\subsection{Filters for a selected output, objective, or start}
+The generic worker additionally accepts \cmd{outputs()}, \cmd{objectives()},
+\cmd{starts()}, and \cmd{jobids()} as numeric lists. The last option lists
+global job IDs from that preparation. All filters are combined with AND and
+with the original-ID worker-partition condition. For example, a single session can process
+only objective 1 for output 1:
+\begin{lstlisting}
+jwselect_worker using "C:/work/target_run01", ///
+    worker(1) workers(1) outputs(1) objectives(1) ///
+    cachemb(64) progress
+\end{lstlisting}
+To restrict that command further to start 3, add \cmd{starts(3)}. This selects
+jobs already frozen in preparation; it does not create a new start or change
+its allocated budget. The remaining jobs must also be completed before final collection.
+The generic worker has no \cmd{resume} or \cmd{redo} option; compatible
+completed jobs are reused automatically. The collector has no partial-results
+mode. These filters are examples, not a complete alternative schedule. Multiple assigned starts can be batched into one call, allowing
+reuse of the loaded context and projection cache:
+\begin{lstlisting}
+jwselect_worker using "C:/work/target_run01", ///
+    worker(1) workers(1) jobids(1 2 9 10) cachemb(64) progress
+\end{lstlisting}
+These example IDs refer to the original job index, not a renumbered subset.
+Repeated separate calls for individual starts can rebuild caches. Finer scheduling is therefore
+not automatically faster; account for preparation and memory overhead.
+A collection of disjoint filtered calls covering every required job is an
+alternative to the full worker partition; it computes the same estimators.
+
+\subsection{Collect after completion}
+\begin{lstlisting}
+jwselect_collect using "C:/work/target_run01"
+matrix list r(table)
+matrix list r(diagnostics)
+matrix list r(extrema)
+matrix list r(output_map)
+matrix list r(jobs)
+matrix list r(settings)
+display r(N_jobs)
+\end{lstlisting}
+Collection currently performs validation serially; objective/start
+parallelization applies to the searches. The collector checks completeness
+and compatibility, combines starts using
+the objective's minimum or maximum and deterministic tie rule, and evaluates
+the four winning nuisance points using the prepared independent validation
+draws. It then forms the intervals, p-values, and diagnostics.
+An incomplete job set is not a completed inferential result.
+\cmd{r(N\_jobs)} is the number of numerical jobs. If it is zero,
+\cmd{r(jobs)} is a one-row, four-column missing placeholder; the requested
+outputs are handled analytically.
+
+Collection returns \cmd{r()} matrices and leaves active \cmd{e()} intact.
+It does not update \cmd{e(table)} or make \cmd{estat inference} display the
+collected intervals. In a fresh session, \cmd{estimates use} can reload the
+saved preparation estimates if their maps or selection details are needed;
+collection itself does not require that file. Copy
+\cmd{r()} results into named matrices or export them before a subsequent
+command overwrites \cmd{r()}. The generic collector does not automatically write CSV or Stata datasets.
+For example, copy results immediately:
+\begin{lstlisting}
+matrix JW_TABLE = r(table)
+matrix JW_DIAG = r(diagnostics)
+matrix JW_EXTREMA = r(extrema)
+matrix JW_MAP = r(output_map)
+matrix JW_JOBS = r(jobs)
+matrix JW_SETTINGS = r(settings)
+scalar JW_NJOBS = r(N_jobs)
+
+* Optional CSV export; preserve the data in memory.
+preserve
+clear
+svmat double JW_TABLE, names(col)
+generate long output = _n
+order output
+export delimited using "C:/work/target_run01/results.csv", replace
+restore
+\end{lstlisting}
+Retain \cmd{JW\_MAP} with the table to interpret its row numbers. Main-command
+point results can be saved from \cmd{e(table)} and \cmd{e(output\_map)} similarly.
+
+\subsection{What parallel execution preserves}
+For a comparison with serial inference, use identical fitted inputs, targets,
+families, seed, error allowances, search and validation draws, starting points,
+budgets, tolerance, tie ordering, and cache allowance. Numerical equivalence
+is checked by the supplied tests with floating-point tolerances. Caching and
+streaming use the same formulas, but rounding near ties can alter a search
+trajectory; compare their results using tolerances and search diagnostics. A restarted unfinished job may
+repeat its own unsaved search; completed jobs need not be rerun. Version 0.4.0
+does not extract an in-memory search checkpoint from an older running command.
+
+\section{Stored results and diagnostics}
+Useful inspection commands after a main \cmd{jwselect} call are:
+\begin{lstlisting}
+jwselect
+jwselect, nocohort
+jwselect, celleffects
+estat design
+estat selection
+estat scores
+estat pretrend
+estat covariance
+estat cells
+estat inference
+matrix list e(output_map)
+ereturn list
+\end{lstlisting}
+The initial direct-input table uses calendar dates; omitted normalization rows
+are not precisely estimated zero effects. Final output rows are identified by
+\cmd{e(output\_map)}, not by assuming a coefficient label contains a cohort
+number. In focused \cmd{focus(both)}, the aggregate of cohort-selected cells
+and the separately aggregate-selected estimate are distinct estimators of the
+same fixed aggregate target.
+
+
+Let $G$ denote the number of cohorts, $P$ the number of included post cells,
+$K$ the total number of eligible cohort--preperiod pairs, and $O$ the number
+of reported targets. Usually $O=G+1$; focused \cmd{focus(both)} gives $G+2$.
+
+{\small
+\begin{longtable}{@{}p{.36\linewidth}p{.60\linewidth}@{}}
+\toprule
+Stored matrix & Contents \\
+\midrule
+\endfirsthead
+\toprule
+Stored matrix & Contents \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\cmd{e(b)}, \cmd{e(table)} & $1\times O$ estimates; $O\times5$ table with columns \cmd{estimate}, \cmd{se\_fixed}, \cmd{ll}, \cmd{ul}, \cmd{pvalue}. \\
+\cmd{e(ci)}, \cmd{e(pvalue)} & $O\times2$ reported interval endpoints and $O\times1$ zero-null p-values. Missing where inference was not requested. \\
+\cmd{e(V)}, \cmd{e(V\_fixed)} & $O\times O$ joint covariance. \cmd{e(V)} is posted only for manual/WBIC; \cmd{e(V\_fixed)} is always the fixed-selection covariance and is diagnostic under focused selection. \\
+\cmd{e(output\_map)} & $O\times2$: output-kind code and actual cohort, with cohort zero for aggregates. Codes are listed below. \\
+\cmd{e(baselines)}, \cmd{e(postmap)}, \cmd{e(hmap)} & Two-column maps: cohort and maintained baseline ($G$ rows), target post date ($P$), or optional preperiod date ($K$). \\
+\cmd{e(selection)}, \cmd{e(cell\_selection)} & Binary masks for each reported target ($O\times K$) or cell ($P\times K$), in \cmd{e(hmap)} order. Records every restriction used, including other cohorts' restrictions in a joint fit. \\
+\cmd{e(b\_cells)}, \cmd{e(V\_cells)}, \cmd{e(weights)} & $1\times P$ selected cell estimates, $P\times P$ fixed-selection covariance, and $1\times P$ aggregate weights, all in \cmd{e(postmap)} order. Cell SEs are diagnostics under focused selection. \\
+\cmd{e(scores)}, \cmd{e(candidates)} & Candidate scores (columns below); local families with columns cohort, local candidate ID, and $K$ mask bits. \\
+\cmd{e(joint\_candidates)} & Joint binary masks for joint WBIC or focused aggregate/both when $K>0$. \\
+\cmd{e(z)}, \cmd{e(V\_z)} & Canonical $1\times(P+K)$ contrast vector and joint covariance: post contrasts first, optional precontrasts second. \\
+\cmd{e(loading)}, \cmd{e(targets)} & $O\times(P+K)$ selected estimator loadings and fixed target maps. \\
+\cmd{e(inference\_diagnostics)}, \cmd{e(inference\_extrema)} & Numerical reselection diagnostics and discovered nuisance points, described below. \\
+\cmd{e(upstream\_table)} & Direct input only: source cohort, time, estimate, SE, statistic, p-value, lower and upper endpoint; precedes selection. CS-DR uses analytical pointwise inference. \\
+\end{longtable}}
+
+\cmd{e(output\_map)} codes are: 1, ordinary cohort row; 2, aggregate of
+cohort-focused cells; 3, aggregate-focused estimate; 4, manual/WBIC aggregate;
+5, cohort under the aggregate-focused joint fit. Names such as \cmd{cohort1}
+are row labels, not cohort dates. With $K=0$, \cmd{e(hmap)},
+\cmd{e(selection)}, \cmd{e(cell\_selection)}, and
+\cmd{e(joint\_candidates)} are absent.
+
+\cmd{e(scores)} columns are \cmd{scope}, \cmd{cohort}, \cmd{candidate},
+\cmd{nrestr}, \cmd{Wald}, \cmd{WBIC}, \cmd{estimate}, \cmd{se\_fixed},
+\cmd{adjustment}, \cmd{gain}, and \cmd{FMSC}. Scope 1 is local; scope 2 is
+joint, with cohort zero; joint WBIC uses these scope-2 rows. WBIC minimizes
+the \cmd{WBIC} column; focused selection minimizes \cmd{FMSC}. The other
+columns are diagnostics. Local candidate estimates need not equal the final
+joint manual/WBIC estimate. No specification-test p-value is stored in this
+table; \cmd{estat pretrend} returns the requested test separately. Up to floating-point accuracy,
+\[
+ \cmd{e(loading)}\,\cmd{e(z)}'=\cmd{e(b)}',\qquad
+ \cmd{e(loading)}\,\cmd{e(V\_z)}\,\cmd{e(loading)}'=\cmd{e(V\_fixed)}.
+\]
+
+\textbf{Scalars and recorded settings.}
+Counts are \cmd{N\_units}, \cmd{N\_observations}, \cmd{N\_covariates},
+\cmd{N\_clusters}, \cmd{G}, \cmd{K}, and \cmd{P}; unavailable matrix-input
+sample counts are missing. Scalars also record \cmd{gap}, \cmd{anticipation},
+\cmd{upstream\_anticipation}, \cmd{level}, \cmd{gamma}, \cmd{mcerr},
+\cmd{reps}, \cmd{seed}, \cmd{maxcand}, \cmd{maxjoint}, \cmd{cachemb},
+\cmd{optstarts}, \cmd{optmaxeval}, \cmd{opttol}, and \cmd{optreps}.
+Macros record \cmd{baseline}, \cmd{selection\_method}, \cmd{wbic\_scope}, \cmd{focus},
+\cmd{candidate\_type}, \cmd{aggregate}, \cmd{covariance}, \cmd{inference},
+\cmd{postwindow}, \cmd{sourcecmd}, \cmd{cmdline}, \cmd{inferoutputs},
+\cmd{prepared\_directory}, and \cmd{upstream\_stat}. Access each as
+\cmd{e(name)}; \cmd{ereturn list} displays what is available.
+\cmd{e(source\_estimator)}, \cmd{e(source\_version)},
+\cmd{e(source\_method)}, \cmd{e(source\_model)}, and
+\cmd{e(restriction\_scale)} record the source and restriction convention.
+The source estimator is \cmd{matrix}, \cmd{csdid}, or \cmd{jwdid}.
+Source version is empty when not verified from source metadata, including
+\cmd{jwdid}; retain its \cmd{which} output separately.
+\cmd{e(version)} and \cmd{e(build)} identify the installed release.
+
+\subsection{Numerical diagnostics}
+There are four diagnostic rows for every reported output under reselection.
+The diagnostic columns describe:
+\begin{itemize}
+\item \cmd{output}, \cmd{objective}, \cmd{nactive}: output row, objective 1--4,
+and number of active nuisance coordinates.
+\item \cmd{search\_reps}, \cmd{validation\_reps}: draw counts.
+\item \cmd{evaluations}, \cmd{starts\_used}, \cmd{converged\_starts}: actual
+search effort and starts reaching the mesh criterion.
+\item \cmd{budget\_exhausted}: Boolean flag (0/1); 1 means at least one start exhausted its budget, not a count of exhausted starts.
+\item \cmd{search\_value}, \cmd{validated\_value}, \cmd{validation\_gap}:
+searched objective, independent empirical value at its discovered point
+before outward correction, and their absolute difference.
+\item \cmd{radius\_fraction}: location of the winning standardized point;
+0 is the center and 1 the boundary.
+\end{itemize}
+These are computational diagnostics, not specification tests. Independent
+validation differences diagnose simulation sensitivity at the located point,
+not distance from an unknown global extremum. The final interval or p-value
+may use a different objective's discovered point because every point is checked
+for all four quantities. Analytic outputs have zero search counts and missing objective values.
+Unrequested outputs retain four diagnostic rows with output/objective
+identifiers and missing remaining fields. To see the nuisance locations,
+use \cmd{matrix list e(inference\_extrema)}; \cmd{estat inference} returns
+them but does not print the matrix.
+
+\section{Package checks and reproducibility}
+The release archive includes tests and examples, including the additional
+suites in \path{tests_extra/}. Current-release execution evidence belongs in
+\path{VALIDATION.md}; the following paragraph is the historical
+\textbf{version 0.4.0} record. Validation completed on 24 October 2026 used
+\textbf{Stata/MP 17 on 64-bit Windows}. Supplied logs confirm the earlier
+release-gate components, including 648 optimization-fit comparisons, the
+corrected joint-feature checks, 35 additional design checks, four
+saved-results scenarios, and 24 numerical-reference cases comprising 48 fits,
+960 joint candidate comparisons, and 96 pretrend tests. The author also reported
+PASS for the separate \cmd{jwdid} integration suite and all 17 additional
+joint-selection cases after actual \cmd{jwdid} fits. Thus all four additional
+suites passed across the recorded runs. Production estimation code was
+unchanged during these additional tests.
+
+These checks provide implementation evidence on the tested cases; they do
+not establish statistical coverage, global optimization, or runtime
+verification on every Stata version or platform. A fresh simultaneous
+four-session run and a clean-install check are not claimed by this record.
+
+A sufficient staged validation workflow distinguishes four questions:
+\begin{enumerate}
+\item \textbf{Correctness on small examples.} Check baseline/manual/Wald--BIC
+estimates, selection scores, covariance, and focused point selection against
+reference calculations; run actual Stata public-command tests.
+\item \textbf{Execution equivalence.} Compare serial and divided focused
+inference with frozen identical inputs. Compare caching with streaming and
+check that selecting one output leaves its results unchanged.
+\item \textbf{Restart and collection.} Repeat completed workers; check rejection
+of missing jobs, incompatible inputs, and invalid filters. Confirm that
+collection has all required objectives and starts.
+\item \textbf{Numerical adequacy and timing.} Benchmark an expensive empirical
+target, then compare endpoints and p-values under larger budgets, additional
+starts, more draws, and other seeds. This assesses stability, not a proof of
+global optimization.
+\end{enumerate}
+The release includes \path{tests/joint040_reference.py}, an independent
+covariance-weighted, constrained minimum-distance calculation of the joint
+Wald/$J$ identity and WBIC rule, and \path{tests/joint040_smoke.do}, which
+exercises the new Stata public API. In empirical use, the Wald statistic
+requires the appropriate fully robust joint covariance, including
+cross-cohort and cross-period terms; clustering must match the sampling
+design. The compatible MD criterion uses the same covariance construction.
+Synthetic covariance fixtures check the numerical identity, not the
+robustness of a covariance estimator. The upstream integration tests use the
+estimated joint covariance from supported unit-clustered source workflows.
+The files \path{tests/integration_csdid.do} and
+\path{tests/integration_nonlinear.do} cover actual new-adapter fits when
+dependencies are available; \path{tests/csdid_adapter.do} supplies controlled
+CS-DR extraction fixtures. Test availability does not itself constitute
+execution or statistical-coverage evidence.
+The joint-feature smoke test is included in the automatic release gate:
+\begin{lstlisting}
+cd "C:/path/to/jwselect"
+do run_release_tests.do
+\end{lstlisting}
+Run the additional design, numerical-reference, upstream, and saved-results
+suites together with:
+\begin{lstlisting}
+do run_extra_tests.do
+\end{lstlisting}
+Both drivers clear data and estimates; save your work first. The additional
+driver records each suite's result in \path{summary.csv} and its complete
+output in \path{extra_tests.log} within a new results directory under
+\path{tests_extra/}. It does not install or update upstream dependencies.
+The release gate exercises worker/collector APIs sequentially so one session
+can run the entire gate. Actual concurrent filesystem behavior has a separate check:
+\begin{lstlisting}
+* Prepare once, using a new directory.
+do tests/release030_concurrency.do prepare "C:/work/concurrency_test"
+
+* Run one line in each of four separate sessions, from the package root.
+do tests/release030_concurrency.do worker "C:/work/concurrency_test" 1 4
+do tests/release030_concurrency.do worker "C:/work/concurrency_test" 2 4
+do tests/release030_concurrency.do worker "C:/work/concurrency_test" 3 4
+do tests/release030_concurrency.do worker "C:/work/concurrency_test" 4 4
+
+* After all workers finish:
+do tests/release030_concurrency.do collect "C:/work/concurrency_test"
+\end{lstlisting}
+Require the final message \cmd{Actual concurrent worker results match serial:
+PASS}. Retain the test and worker logs.
+
+Begin with small test budgets. Move to an expensive target only after the command and divided-execution tests pass. Keep test results separate
+from final production results. Do not interpret a smoke test with deliberately
+small budgets as validating substantive inference.
+
+Record the package build, Stata version, source fit and covariance convention,
+baseline and anticipation, target window, candidate family, weights, seeds,
+error allowances, numerical settings, and inference diagnostics. Separate
+application scripts can add their own extraction, scheduling, and CSV output;
+these are not additional generic \cmd{jwselect} options.
+
+\section{Troubleshooting and common questions}
+\begingroup\setlength{\parskip}{3pt}
+\textbf{The command asks for a supported upstream fit.}
+Restore \cmd{JW\_SOURCE} before a new direct specification; active estimates
+may belong to \cmd{jwselect}. Alternatively supply \cmd{bmat()},
+\cmd{vmat()}, \cmd{cells()}, and \cmd{nunits()} together.
+
+\textbf{Mata reports an old or incomplete build.}
+Save your work and restart Stata after installing the complete package. Inspect
+\cmd{which jwselect} and \cmd{findfile \_jwselect\_mata.do}. If compilation
+fails, keep the first compiler error and loader path; later undefined-function
+errors may be consequences.
+
+\textbf{A baseline or postperiod is unavailable.}
+Inspect input support and choose a supported design explicitly. The command
+does not silently shorten a horizon or substitute another baseline.
+
+\textbf{The candidate cap is exceeded.}
+Count the intended local families and the joint product used by joint WBIC
+or aggregate-focused selection. Raise
+\cmd{maxcand()} or \cmd{maxjoint()} if memory permits. Choosing a smaller
+prespecified family changes the procedure. \cmd{inferoutputs()} does not
+avoid joint point selection requested by \cmd{focus(both)}.
+
+\textbf{A restriction covariance is singular.}
+Check duplicated cells, normalization rows, covariance construction, and
+identification. Do not delete covariance terms or add arbitrary jitter merely
+to make a run complete.
+
+\textbf{Collection refuses to proceed.}
+Finish every prepared job and wait for workers to exit. Inspect reported
+locks and compatibility messages. Do not mix preparations. There is no
+partial collection; separately prepared targets allow separate completion.
+
+\textbf{Intervals are missing or conventional postestimation fails.}
+Check \cmd{inference(none)} and \cmd{inferoutputs()}. Focused estimates
+intentionally omit \cmd{e(V)}; \cmd{se\_fixed} does not justify normal CIs.
+Do not use \cmd{e(V\_fixed)} or \cmd{e(V\_cells)} as selection-adjusted
+covariance for \cmd{lincom}, \cmd{test}, or \cmd{margins}.
+Observation-level \cmd{predict} is undefined. Use the provided intervals and
+p-values; rerun with another fixed target if needed.
+
+\textbf{Does the number of sessions change the estimator?}
+No, provided the prepared inputs, jobs, and combination rule are the same.
+Changing the candidate family, target, baseline, or anticipation does change
+the statistical calculation.
+
+\textbf{Can the candidate subsets be split into independent confidence intervals?}
+No. Reselection must find the winning candidate across the entire family for
+each draw. Separate subset intervals cannot simply be combined to reproduce
+that calculation. Objective/start splitting avoids this problem.
+
+\textbf{Why can a short yearly panel still be expensive?}
+A cohort with $K$ optional restrictions has $2^K$ candidates. Focused inference
+repeats selection across simulation draws and nuisance trials. MD point
+estimation from saved coefficients is much cheaper than this nested procedure.
+
+\textbf{Can increasing validation draws cure a budget warning?}
+No. Validation and outer optimization address different numerical errors.
+Inspect start convergence and compare search settings separately.
+
+\textbf{Can I use the same directory for a different seed or larger budget?}
+Use a new prepared directory. Results from different frozen designs must not
+be pooled as if they were one complete job set.
+
+\textbf{Does dropping an aggregate remove cross-cohort covariance?}
+No. \cmd{inferoutputs()} controls which reported targets receive inference.
+The underlying joint covariance and the selection rule for the requested
+output remain intact.
+
+\textbf{How should I interpret an optional-restriction Wald/$J$ diagnostic?}
+Use \cmd{estat pretrend} for the prespecified full optional set,
+\cmd{estat pretrend, prematrix(P)} for a prespecified subset, or
+\cmd{estat pretrend, selected} for a selected-set diagnostic. Focused selected
+tests also require \cmd{output(\#)}. The command reports equal Wald and $J$
+values through the compatible MD identity. A rejection concerns optional
+restrictions under the maintained model; it does not test the baseline
+identifying assumption. Outcome-selected p-values are diagnostics, not
+selection-adjusted tests. Switching estimators after inspecting a p-value
+creates another selection rule whose inference needs separate justification.
+
+\endgroup
+\clearpage
+\appendix
+\section{Command option reference}
+Defaults below apply to a fresh estimation call. Omitted matrix options use
+no supplied matrix; omitted \cmd{inferoutputs()} requests every output.
+A bare \cmd{jwselect} replays active \cmd{jwselect} results. To change the
+specification, restore the upstream fit or supply the matrix inputs again.
+
+{\small
+\begin{longtable}{@{}p{.34\linewidth}p{.62\linewidth}@{}}
+\toprule
+Option and default & Meaning or restriction \\
+\midrule
+\endfirsthead
+\toprule
+Option and default & Meaning or restriction \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\cmd{bmat(B) vmat(V) cells(C)} & Supply all three together for matrix input. \cmd{B} is a row or column vector; \cmd{V} is its full sampling covariance; \cmd{C} contains corresponding cohort and calendar-time rows. \\
+\cmd{nunits(N)}, \cmd{gap(1)} & Matrix route: independent-unit count $N>1$ and positive period spacing. Direct input obtains both from the upstream fit. \\
+\cmd{vce()} & \cmd{jwdid}: default \cmd{unconditional} with \cmd{regress}, \cmd{logit}, or \cmd{poisson}; explicit \cmd{conditional} also permits linear \cmd{reghdfe}. CS-DR and matrix input use \cmd{supplied}. \\
+\cmd{baseline(cohort)} & Linear/matrix inputs also allow \cmd{common}. CS-DR and nonlinear inputs retain the upstream cohort baseline. No arbitrary numeric baseline is implemented. \\
+\cmd{anticipation()} & Nonnegative integer allowance. Default 0 for linear/matrix input. CS-DR/nonlinear input infers it from the source and rejects explicit mismatches. \\
+\cmd{postwindow(first last)} & Inclusive nonnegative integer event-time endpoints, with first $\leq$ last. Default: all available post cells. Every requested cell must exist in every cohort. \\
+\cmd{select(wbic)} & Alternatives: \cmd{manual}, \cmd{wbic}, \cmd{focused}. \\
+\cmd{wbicscope(cohort)} & WBIC only: \cmd{cohort} selects within each cohort; \cmd{joint} minimizes joint WBIC using the full restriction covariance. Both then use joint MD. \\
+\cmd{focus(both)} & Focused selection only: \cmd{cohort}, \cmd{aggregate}, or \cmd{both}. \\
+\cmd{candidates(nested)} & Automatic local family: \cmd{nested} or \cmd{all}. Overridden by \cmd{candmatrix()}; inactive for manual selection. \\
+\cmd{prematrix(P)} & Manual only: two columns, cohort and optional calendar date. Omitted means baseline-only; do not list baselines. \\
+\cmd{candmatrix(CM)} & Automatic selection only: cohort followed by $K$ binary mask bits in \cmd{e(hmap)} order. Provide a local family for every cohort. \\
+\cmd{jointmatrix(JM)} & Joint WBIC or focused aggregate/both: $K$ binary columns, one joint configuration per row. Overrides the Cartesian joint family. \\
+\cmd{maxcand(4096)}, \cmd{maxjoint(4096)} & Positive integer caps per local family and on the joint family. Exceeding a cap causes an error. \\
+\cmd{aggregate(equalcohort)} & Alternatives: \cmd{equalcohort} or \cmd{equalcell}. Weights are fixed. \\
+\cmd{aggweights(W)} & Overrides aggregation defaults: cohort, time, weight; every target cell exactly once, including zeros. Nonnegative weights must sum to one; no renormalization. \\
+\cmd{inference(auto)} & Resolves to fixed-restriction normal inference for manual, pointwise oracle normal inference for WBIC, and \cmd{reselect} for focused. Alternatives: \cmd{none}, \cmd{reselect}, \cmd{envelope}; the last two require focused selection. \\
+\cmd{level(\#)} & Stata's current confidence level, normally 95. \\
+\cmd{gamma(.01)}, \cmd{mcerr(.001)} & Nuisance-region and simulation-error allowances. Their sum must leave positive error probability below $1-\texttt{level}/100$. \\
+\cmd{reps(19999)}, \cmd{seed(12345)} & Independent checking draws for reselection (simulation draws for envelope), and a nonnegative integer RNG seed. Too few draws for the requested bounds cause an error. \\
+\cmd{optstarts(4)}, \cmd{optmaxeval(400)} & Starts and total evaluation budget \emph{per objective}, shared across starts; budget must be at least the number of starts. \\
+\cmd{opttol(.02)}, \cmd{optreps(1999)} & Unit-ball stopping mesh, strictly between 0 and .5; common search draws, at least 100. \\
+\cmd{inferoutputs(numlist)} & Output row numbers, not dates. Focused with \cmd{none}, \cmd{auto}, or \cmd{reselect} only; other rows retain estimates but no intervals or p-values. \\
+\cmd{prepare("newdir")} & Focused with \cmd{inference(none)} only. Requires a new directory with an existing parent; freezes a divided-work configuration without running searches. \\
+\cmd{cachemb(64)}, \cmd{progress} & Nonnegative decimal-MB search-cache allowance per active calculation; zero streams all candidates. Not a total RAM limit. Progress messages are off by default. \\
+\cmd{nocohort}, \cmd{celleffects} & Hide cohort result rows, or display cell estimates and fixed-selection SEs. Display only; these options do not reduce inference work. \\
+\end{longtable}}
+
+\subsection*{Pretrend-test syntax}
+\begin{lstlisting}
+estat pretrend [, selected prematrix(P) output(#)]
+\end{lstlisting}
+The default tests all eligible optional restrictions jointly.
+\cmd{selected} and \cmd{prematrix()} are mutually exclusive.
+\cmd{output()} is allowed only with \cmd{selected}; it is required for focused
+selected tests and defaults to 1 for manual/WBIC selected tests.
+See Section~\ref{sec:pretrend} for returned results and interpretation.
+
+\subsection*{Worker and collector syntax}
+\begin{lstlisting}
+jwselect_worker using "directory", worker(#) workers(#) ///
+    [outputs(numlist) objectives(numlist) starts(numlist) ///
+     jobids(numlist) cachemb(#) progress]
+
+jwselect_collect using "directory" [, progress]
+\end{lstlisting}
+Brackets denote optional syntax; do not type them. All worker filters
+intersect the original-ID partition. The worker's own \cmd{cachemb()} default
+is 64; specify it explicitly to match preparation. The collector's
+\cmd{r(settings)} records preparation settings, not a worker override.
+Search settings cannot be changed by worker or collector options.
+
+\section{Reference and contact}
+For the method, cite:
+
+Kim, Doosoo. 2026. \emph{From Pretrend Tests to Preperiod Selection in
+Difference-in-Differences}. Working paper.
+
+Report the software version, including a hotfix number if applicable.
+
+Questions and bug reports: \href{mailto:doosoonet@gmail.com}{doosoonet@gmail.com}.
+Include your Stata version, command, first error, and a reproducible example.
+
+Upstream documentation: \href{https://psantanna.com/csdid/}{\cmd{csdid}} and
+\href{https://friosavila.github.io/app_metrics/app_metrics11.html}{\cmd{jwdid}}.
+See Section~2 for the supported specifications.
+\end{document}
+

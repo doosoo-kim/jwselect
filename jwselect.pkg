@@ -1,8 +1,9 @@
 v 3
-d jwselect 0.4.0: preperiod selection after jwdid
-d 23oct2026. Joint Wald-BIC selection and joint Wald-J pretrend testing.
+d jwselect 0.5.0: preperiod selection after jwdid or csdid
+d 26oct2026. Optional CS-DR and nonlinear DiD adapters; joint selection and testing.
 f jwselect.ado
 f _jwselect_jwdid.ado
+f _jwselect_csdid.ado
 f _jwselect_display.ado
 F _jwselect_mata.do
 f jwselect_estat.ado

@@ -2,14 +2,15 @@
 
 **Preperiod selection and minimum-distance estimation in Stata**  
 Doosoo Kim ([doosoonet@gmail.com](mailto:doosoonet@gmail.com))  
-Version 0.4.0 — 23 October 2026
+Version 0.5.0 — 26 October 2026
 
-Release archive finalized 24 October 2026. Tested on Stata/MP 17 for Windows;
-the estimation code is unchanged from the tested `0.4.0-joint1` build.
+Version 0.5.0 adds optional CS-DR and nonlinear DiD adapters. The original
+linear and matrix workflows remain available. See the release validation
+record for checks actually executed; the 0.4.0 record below is historical.
 
 **[Quick user guide (PDF)](docs/jwselect_quick_user_guide.pdf)** · [Full user guide (PDF)](docs/jwselect_user_guide.pdf)
 
-`jwselect` selects optional preperiod restrictions and estimates cohort and aggregate treatment effects using cohort-time estimates and their full joint covariance. It works after a supported `jwdid` fit or with separately supplied coefficient and covariance matrices.
+`jwselect` selects optional preperiod restrictions and estimates cohort and aggregate treatment effects using cohort-time estimates and their full joint covariance. It works after a supported `csdid` or `jwdid` fit, or with separately supplied coefficient and covariance matrices.
 
 The command provides:
 
@@ -18,7 +19,7 @@ The command provides:
 - **Joint pretrend tests:** test all eligible optional restrictions or a prespecified subset, with equivalent Wald and MD J statistics.
 - **Focused selection:** balance estimated bias and variance for a cohort effect or aggregate, with numerical reselection inference.
 
-Design options include cohort or common baselines, anticipation, treatment-effect horizons, and fixed aggregation weights. Start with the quick guide; the full guide and Stata's `help jwselect` provide the option reference and advanced workflows.
+Design options include anticipation, treatment-effect horizons, and fixed aggregation weights. Linear and matrix inputs allow cohort or common baselines; the CS-DR and nonlinear adapters retain the upstream cohort baseline. Start with the quick guide; the full guide and Stata's `help jwselect` provide the option reference and advanced workflows.
 
 ## Install
 
@@ -47,9 +48,19 @@ ssc install hdfe, replace
 net install jwdid, from("https://raw.githubusercontent.com/friosavila/stpackages/main") replace
 ```
 
-The matrix interface does not require `jwdid`. Upstream packages are installed separately and are not bundled here.
+Both upstream packages are **optional**. The matrix interface needs neither; `jwselect` never installs or updates them automatically.
 
-## Quick start
+For CS-DR, use **`csdid` 2.x, version 2.0.1 or later**. This pinned 2.0.1 source is the compatibility target for this release:
+
+```stata
+net install csdid, ///
+    from("https://raw.githubusercontent.com/pedrohcgs/csdid-stata/f98bcea0691b1670c409bb7e3cc81d60705b4f84") replace
+csdid version
+```
+
+If replacing an existing `csdid` installation, first follow the [authors' installation guide](https://psantanna.com/csdid/) to avoid conflicting package registrations. Older SSC 1.x releases are not supported. Record the full installation URL and reported version. Version 2.x does not require `drdid`.
+
+## Linear DiD quick start
 
 Replace the variable names with your own. Code never-treated units as `first_treat = 0`. The direct adapter supports a balanced, regularly spaced panel, unweighted linear estimation, unit-level clustering, and numeric covariates that are constant within each unit.
 
@@ -75,6 +86,54 @@ estimates store JW_BASE
 **Restore `JW_SOURCE` before every new direct `jwselect` specification.** Each run replaces Stata's active estimation results. A bare `jwselect` replays the current results.
 
 Here, `postwindow(0 2)` averages the first three treatment periods within each cohort and requires those dates to exist for every cohort. The example uses the default nested candidate family. `candidates(all)` searches every local subset and can become large.
+
+## CS-DR through `csdid`
+
+Start with an unaggregated CS-DR fit and set its options explicitly:
+
+```stata
+csdid y x1 x2, ivar(id) time(year) gvar(first_treat) ///
+    method(dr) nevertreated base_period(universal) ///
+    analytical pointwise cluster(id)
+estimates store CS_SOURCE
+
+jwselect, select(wbic) candidates(nested) postwindow(0 2)
+estat selection
+estat pretrend
+
+estimates restore CS_SOURCE
+jwselect, select(manual) postwindow(0 2)
+```
+
+The first adapter supports balanced panels with positive integer, unit-spaced calendar times, actual never-treated controls, unweighted estimation, and plain numeric covariates constant within unit. Clustering may be omitted (panel influence functions already account for repeated observations) or specified at `ivar()`; higher-level clustering is outside this initial contract. It requires the original estimation data and the full analytical joint covariance. Aggregated results, bootstrap covariance, varying bases, not-yet-treated controls, and older `csdid` interfaces are rejected.
+
+Its covariance convention is `vce(supplied)`, the default after `csdid`. `baseline(cohort)` is required. An omitted `anticipation()` is inferred from the source fit; an explicit value must match it. The adapter restores normalized base cells using upstream metadata; it does not re-estimate CS-DR at alternative bases. See [`examples/csdid_demo.do`](examples/csdid_demo.do).
+
+## Nonlinear DiD through `jwdid`
+
+For a binary outcome, use the supported logit specification:
+
+```stata
+jwdid y x1 x2, ivar(id) tvar(year) gvar(first_treat) ///
+    never method(logit) cluster(id)
+estimates store NL_SOURCE
+jwselect, select(wbic) candidates(nested) postwindow(0 2)
+
+estimates restore NL_SOURCE
+jwselect, select(manual) postwindow(0 2)
+```
+
+Use `method(poisson)` for an exponential conditional mean. The nonlinear adapter supports these two methods under the same balanced, unweighted, never-treated, unit-clustered, time-invariant-covariate contract as the linear adapter. It extracts **outcome-scale ATT and placebo margins with their full joint covariance**, rather than treating nonlinear coefficients as ATTs. `vce(unconditional)` remains the default; `vce(conditional)` requests inference conditional on the observed covariate distribution. `ppmlhdfe` and other nonlinear methods are outside this initial support.
+
+The upstream cohort normalization must be retained: use `baseline(cohort)` and omit `anticipation()` to infer the compatible value. For `jwdid`, this equals its recorded anticipation value minus one. Explicit mismatches are rejected. See [`examples/nonlinear_demo.do`](examples/nonlinear_demo.do).
+
+### Interpretation of the new adapters
+
+For CS-DR and nonlinear inputs, `jwselect` adjusts a baseline ATT using selected **zero average outcome-scale placebo effects** and their cross-covariance with that ATT. This is a Gaussian minimum-distance moment adjustment. The reported Wald–J identity belongs to that common quadratic problem; it does not claim equality with a restricted nonlinear refit or separately re-estimated alternative-base CS-DR effects. With covariate interactions, zero average nonlinear placebo effects can be weaker restrictions than zeroing every index-pretrend coefficient.
+
+Validity requires identification and joint asymptotic normality of the baseline and selected moments with consistent covariance. CS-DR robustness conditions must hold for each moment used; calling the backend does not by itself validate them. Adjustment can move nonlinear estimates outside natural outcome bounds; results are not clipped. `jwselect`'s fixed equal-cohort/equal-cell weights also need not reproduce `csdid`'s population-share aggregates.
+
+Stored metadata `e(source_estimator)`, `e(source_version)`, `e(source_method)`, `e(source_model)`, and `e(restriction_scale)` identify the input and restriction convention. `e(source_version)` is empty when the source does not expose a verified version (including `jwdid`); retain `which jwdid` output separately. Restore the stored source fit before every new direct specification.
 
 ## Joint selection and pretrend testing
 
@@ -133,8 +192,9 @@ jwselect, bmat(B) vmat(V) cells(C) nunits(500) ///
 For robust pretrend inference, supply the appropriate heteroskedasticity- or
 cluster-robust **full joint covariance**, including cross-cohort and cross-period
 terms. The matrix interface uses the supplied covariance; it cannot infer or
-repair its statistical construction. The direct adapter requires unit-level
-clustering and supports its documented conditional/unconditional conventions.
+repair its statistical construction. The `jwdid` adapter requires unit-level clustering and supports its documented
+conditional/unconditional conventions. The CS-DR adapter retains the analytical
+influence-function covariance supplied by `csdid`.
 
 ## Citation and contact
 
@@ -171,7 +231,7 @@ For the Stata release checks, save your work, start a **fresh Stata 17 or later 
 do run_release_tests.do
 ```
 
-The driver clears data and estimates. Look for the final `jwselect 0.4.0 release tests: PASS` message. The separate `tests/integration_jwdid.do` checks the upstream adapter when its dependencies are installed; it does not install them.
+The driver clears data and estimates. Look for the final `jwselect 0.5.0 release tests: PASS` message. The separate `tests/integration_jwdid.do`, `tests/integration_csdid.do`, and `tests/integration_nonlinear.do` exercise actual upstream fits when their dependencies are available; they do not install them. `tests/csdid_adapter.do` exercises the CS-DR extraction contract with controlled fixtures.
 
 The corrected additional tests are included in this release:
 
@@ -183,7 +243,21 @@ They write a complete log and a four-suite summary in a new
 `tests_extra/results_<timestamp>` folder. See
 [`README_EXTRA_TESTS.txt`](README_EXTRA_TESTS.txt) for coverage and instructions.
 
-### Validation record — 24 October 2026
+### Validation record - version 0.5.0, 26 October 2026
+
+Passed in Stata/MP 17 on Windows: the release gate (including the dependency-free
+CS-DR fixtures), actual csdid 2.0.1 integration, existing linear jwdid integration,
+logit and Poisson jwdid integration, both new examples, and installation into an
+isolated local ado directory. All six independent Python check scripts passed.
+The optional upstream suites can be run together with `do run_adapter_tests.do`;
+missing dependencies produce explicit SKIP messages and are never installed.
+
+See [VALIDATION.md](VALIDATION.md) for versions, scope, and limitations, with
+executed logs in [validation/](validation/). Both PDF manuals were rebuilt and
+visually checked. These checks verify implementation consistency; they do not
+establish statistical coverage or certify global numerical optimization.
+
+### Historical validation record — version 0.4.0, 24 October 2026
 
 Release-test components passed across the supplied Stata/MP 17 Windows logs,
 including worker/collector, caching/streaming, restart/cleanup, 648 complete-fit
@@ -221,13 +295,12 @@ both example paths:
 
 ```stata
 cd "C:/work/install-check"
-do "C:/downloads/jwselect-0.4.0/run_installed_check.do" "C:/downloads/jwselect-0.4.0"
+do "C:/downloads/jwselect-0.5.0/run_installed_check.do" "C:/downloads/jwselect-0.5.0"
 ```
 
 This clears data and estimates. It does not install packages or change
 `adopath`. It checks that all installed command/help files resolve outside
 the source folder, verifies the build, and runs a small self-contained
 matrix example. It requires no `jwdid`. Look for
-`jwselect 0.4.0 installed-package check: PASS`; the timestamped log is written
-in the working directory. This new check was reviewed during final packaging
-but has not been run in Stata here.
+`jwselect 0.5.0 installed-package check: PASS`; the timestamped log is written
+in the working directory. Refer to the current release validation record for the checks actually run.

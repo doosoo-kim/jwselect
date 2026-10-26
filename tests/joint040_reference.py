@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Independent reference checks and deterministic fixtures for jwselect 0.4.0.
+"""Independent reference checks and deterministic fixtures for jwselect 0.5.0.
 
 Executes Python/NumPy/SciPy, NOT Stata or Mata.  The companion
 joint040_smoke.do exercises the public Stata API against these fixed values.

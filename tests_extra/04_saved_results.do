@@ -1,4 +1,4 @@
-*! Save/restore and postestimation checks for jwselect 0.4.0, 24oct2026.
+*! Save/restore and postestimation checks for jwselect 0.5.0, 24oct2026.
 *! Run from the package root. Replaces data with a small sentinel dataset.
 version 17.0
 set more off
@@ -44,8 +44,8 @@ tempname held
 forvalues scenario=1/4 {
     display as text "Saved-results scenario `scenario': `fit`scenario''"
     jwselect, bmat(J40_B) vmat(J40_V) cells(J40_C) nunits(100) `fit`scenario''
-    assert "`e(version)'" == "0.4.0"
-    assert "`e(build)'" == "0.4.0-joint1"
+    assert "`e(version)'" == "0.5.0"
+    assert "`e(build)'" == "0.5.0-adapters1"
     local original_matrices : e(matrices)
     foreach m of local original_matrices {
         matrix X4_`m' = e(`m')
@@ -71,8 +71,8 @@ forvalues scenario=1/4 {
     ereturn clear
     estimates use "`saved'"
     assert "`e(cmd)'" == "jwselect"
-    assert "`e(version)'" == "0.4.0"
-    assert "`e(build)'" == "0.4.0-joint1"
+    assert "`e(version)'" == "0.5.0"
+    assert "`e(build)'" == "0.5.0-adapters1"
     assert "`e(selection_method)'" == "`original_method'"
     assert "`e(wbic_scope)'" == "`original_scope'"
     assert "`e(inference)'" == "`original_inference'"

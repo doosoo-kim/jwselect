@@ -1,4 +1,4 @@
-*! jwselect 0.4.0 23oct2026: read-only adapter for jwdid 2.201 / estat 2.2
+*! jwselect 0.5.0 26oct2026: read-only linear/nonlinear jwdid adapter
 program define _jwselect_jwdid, rclass
     version 15.1
     syntax [, VCE(string)]
@@ -27,7 +27,7 @@ program define _jwselect_jwdid, rclass
         foreach key in N_units N_obs N_clusters N_covariates gap anticipation df_r {
             local `key' = r(`key')
         }
-        foreach key in ivar tvar gvar sourcecmd sourcevce upstream_stat {
+        foreach key in ivar tvar gvar sourcecmd sourcevce upstream_stat model method restriction_scale {
             local `key' `"`r(`key')'"'
         }
     }
@@ -43,7 +43,7 @@ program define _jwselect_jwdid, rclass
     foreach key in N_units N_obs N_clusters N_covariates gap anticipation df_r {
         return scalar `key' = ``key''
     }
-    foreach key in ivar tvar gvar sourcecmd sourcevce upstream_stat {
+    foreach key in ivar tvar gvar sourcecmd sourcevce upstream_stat model method restriction_scale {
         return local `key' `"``key''"'
     }
     return local vce `"`vce'"'
@@ -54,9 +54,26 @@ program define _jwselect_jwdid_work, rclass
     syntax , VCE(string)
 
     local backend `"`e(cmd2)'"'
-    if !inlist(`"`backend'"', "", "regress") {
-        di as err "The jwdid adapter supports method(regress) and the default reghdfe fit only"
+    if !inlist(`"`backend'"', "", "regress", "logit", "poisson") {
+        di as err "The jwdid adapter supports regress, default reghdfe, logit, and poisson"
+        di as err "Other methods require a separately validated matrix interface"
         exit 198
+    }
+    local model linear
+    local method `backend'
+    if `"`method'"' == "" local method reghdfe
+    local restriction_scale outcome_contrast
+    if inlist(`"`backend'"', "logit", "poisson") {
+        local model nonlinear
+        local restriction_scale outcome_placebo
+        if missing(e(converged)) | e(converged) != 1 {
+            di as err "The nonlinear jwdid fit did not converge"
+            exit 498
+        }
+        if `"`e(index)'"' != "" {
+            di as err "The nonlinear adapter requires outcome-scale margins; refit without index"
+            exit 198
+        }
     }
     if `"`e(cmdopt)'"' != "" {
         di as err "Custom method() options are outside this adapter's validated contract"
@@ -66,8 +83,8 @@ program define _jwselect_jwdid_work, rclass
         di as err "The jwdid adapter requires hettype(timecohort) and never"
         exit 198
     }
-    if `"`vce'"' == "unconditional" & `"`backend'"' != "regress" {
-        di as err "vce(unconditional) requires jwdid ..., method(regress) never"
+    if `"`vce'"' == "unconditional" & `"`backend'"' == "" {
+        di as err "vce(unconditional) requires jwdid ..., method(regress, logit, or poisson) never"
         di as err "Use vce(conditional) for an explicitly conditional analysis of a reghdfe fit"
         exit 198
     }
@@ -104,6 +121,7 @@ program define _jwselect_jwdid_work, rclass
     }
     quietly _jwselect_jwdid_parse `commandargs'
     local xs `"`r(covariates)'"'
+    local y `"`r(outcome)'"'
     local ncov = r(N_covariates)
     local cluster `"`r(cluster)'"'
     if `"`cluster'"' != "" & `"`cluster'"' != `"`ivar'"' {
@@ -122,6 +140,13 @@ program define _jwselect_jwdid_work, rclass
     // The outer preserve restores all observations, labels, variables, and sort order.
     // Restricting here also prevents out-of-sample cells from entering margins.
     quietly keep if `sample'
+    if `"`backend'"' == "logit" {
+        capture assert inlist(`y', 0, 1)
+        if _rc {
+            di as err "The logit adapter requires a binary outcome coded 0/1"
+            exit 198
+        }
+    }
     capture isid `ivar' `tvar'
     if _rc {
         di as err "The jwdid adapter requires one observation per individual and period"
@@ -266,6 +291,41 @@ program define _jwselect_jwdid_work, rclass
     mata: st_matrix("`B'", st_matrix("`B'")[,strtoreal(tokens(st_local("keep")))])
     mata: st_matrix("`V'", st_matrix("`V'")[strtoreal(tokens(st_local("keep"))),strtoreal(tokens(st_local("keep")))])
     mata: st_matrix("`C'", st_matrix("`C'")[strtoreal(tokens(st_local("keep"))),])
+    // Nonlinear effects are outcome-scale predictive contrasts. The core may
+    // use their zero-placebo restrictions, but must not rebase them by
+    // subtracting a nonzero pretreatment margin. Main-command guards enforce
+    // the original cohort baseline and anticipation. Verify its normalization.
+    // margins can leave roundoff in this identically-zero contrast because
+    // it evaluates numerical derivatives. Only after the 1e-10 checks below,
+    // canonicalize this known normalization to exact zero. Materially nonzero
+    // estimates/covariances are errors, never silently removed.
+    if `"`model'"' == "nonlinear" {
+        tempname invalidbase
+        quietly levelsof `gvar' if `gvar'>0, local(groups)
+        foreach g of local groups {
+            local found 0
+            forvalues j=1/`=rowsof(`C')' {
+                if `C'[`j',1]==`g' & abs(`C'[`j',2]-(`g'-`gap'*`anti'))<1e-8*`gap' {
+                    local ++found
+                    mata: st_numscalar("`invalidbase'", max(abs((st_matrix("`V'")[`j',.],st_matrix("`V'")[.,`j']'))))
+                    if abs(`B'[1,`j'])>1e-10 | scalar(`invalidbase')>1e-10 {
+                        di as err "Nonlinear cohort baseline is not a structural-zero margin"
+                        exit 498
+                    }
+                    matrix `B'[1,`j']=0
+                    matrix `V'[`j',1]=J(1,colsof(`V'),0)
+                    matrix `V'[1,`j']=J(rowsof(`V'),1,0)
+                    // Structural zeros have no meaningful test statistic,
+                    // p-value, or interval in the upstream comparison table.
+                    matrix `T'[`j',3]=J(1,4,.)
+                }
+            }
+            if `found'!=1 {
+                di as err "Nonlinear cohort baseline is unavailable or duplicated"
+                exit 498
+            }
+        }
+    }
     // r(table) can leave normalized rows missing. Use the validated estimate
     // vector and covariance for the displayed estimates and standard errors.
     // Retain upstream test statistics, p-values and interval endpoints as given.
@@ -291,6 +351,9 @@ program define _jwselect_jwdid_work, rclass
     return local gvar `"`gvar'"'
     return local sourcecmd `"`sourcecmd'"'
     return local sourcevce `"`sourcevce'"'
+    return local model `model'
+    return local method `method'
+    return local restriction_scale `restriction_scale'
 end
 
 program define _jwselect_jwdid_parse, rclass
@@ -330,6 +393,7 @@ program define _jwselect_jwdid_parse, rclass
         }
     }
     return local covariates `"`xs'"'
+    return local outcome `"`y'"'
     return local cluster `"`cluster'"'
     return scalar N_covariates = `: word count `xs''
 end

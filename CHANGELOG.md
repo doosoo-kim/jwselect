@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.5.0 - 26 October 2026
+
+- Added an optional CS-DR adapter for the csdid 2.x interface, tested against
+  version 2.0.1. It reads unaggregated group-time effects and their full
+  analytical covariance, reconstructs normalization cells by name, and detects
+  changes to the signed estimation data.
+- Added nonlinear jwdid support for logit and Poisson through joint outcome-scale
+  ATT/placebo margins, with conditional or unconditional covariance. The adapter
+  validates convergence and known baseline normalizations before removing
+  numerical derivative residue at structural zeros.
+- Both new adapters retain the source cohort baseline and infer its anticipation
+  convention when omitted. Unsupported rebasing, mismatched anticipation, and
+  unsupported source specifications fail explicitly.
+- Added source estimator/version/method/model and restriction-scale metadata.
+  Updated display provenance and documented the canonical covariance-weighted
+  moment adjustment. This is not an upstream nonlinear constrained refit or
+  CS-DR re-estimation at alternative base periods.
+- Preserved existing linear and matrix estimation behavior. Upstream packages
+  remain optional and separately installed; no estimation command downloads or
+  updates dependencies.
+- Added controlled CS-DR fixtures, real-upstream integration suites, two examples,
+  and an optional adapter-test driver. Updated both PDF manuals and help.
+- Passed the Stata/MP 17 release gate, all actual adapter integrations, the new
+  examples, an isolated local installation check, and six independent Python
+  check scripts. See VALIDATION.md and validation/ for the executed record.
+
+Initial support is limited to the documented balanced, unweighted panel designs
+with never-treated controls and time-invariant numeric covariates. Numerical
+validation does not establish statistical coverage or global optimization.
+
 ## 0.4.0 release archive finalized — 24 October 2026
 
 - Preserved the tested `0.4.0-joint1` estimation and postestimation code.

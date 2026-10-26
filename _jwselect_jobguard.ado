@@ -1,4 +1,4 @@
-*! jwselect 0.4.0 23oct2026
+*! jwselect 0.5.0 23oct2026
 program define _jwselect_jobguard, rclass
     version 17.0
     syntax, DIRectory(string) ACTion(string)
@@ -35,7 +35,7 @@ program define _jwselect_jobguard, rclass
         capture noisily {
             clear
             set obs 1
-            generate str24 build = "0.4.0-joint1"
+            generate str24 build = "0.5.0-adapters1"
             generate double manifest_crc = `manifest_crc'
             generate double manifest_bytes = `manifest_bytes'
             save `"`directory'/READY.dta"'
@@ -50,7 +50,7 @@ program define _jwselect_jobguard, rclass
     preserve
     capture noisily {
         quietly use `"`directory'/READY.dta"', clear
-        assert _N==1 & build=="0.4.0-joint1"
+        assert _N==1 & build=="0.5.0-adapters1"
         local crc = manifest_crc[1]
         local bytes = manifest_bytes[1]
         quietly checksum `"`directory'/manifest.dta"'

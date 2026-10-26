@@ -1,4 +1,4 @@
-*! Extra numerical tests for jwselect 0.4.0, Stata 17 or newer.
+*! Extra numerical tests for jwselect 0.5.0, Stata 17 or newer.
 *! Run from the folder containing tests_extra/: do tests_extra/03_numeric_oracle.do
 *! Uses only public jwselect/estat commands and precomputed independent fixtures.
 *! No Python is required. Does not clear data or open/close a log.
@@ -139,7 +139,7 @@ forvalues xo_case = 1/24 {
 
     quietly jwselect, bmat(XO_B) vmat(XO_V) cells(XO_C) ///
         nunits(`xo_n') select(wbic) wbicscope(joint) candidates(all)
-    assert "`e(version)'" == "0.4.0"
+    assert "`e(version)'" == "0.5.0"
     assert "`e(wbic_scope)'" == "joint"
     display as text "  Checking joint estimates and candidate scores"
     mata: xo_checkfit("XO_J")

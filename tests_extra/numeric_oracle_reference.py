@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Developer-only independent numerical oracle for jwselect 0.4.0.
+"""Developer-only independent numerical oracle for jwselect 0.5.0.
 
 Run this file to regenerate numeric_oracle_fixture.do, or use --check to
 verify that its checked-in contents match. Stata users do not need Python.

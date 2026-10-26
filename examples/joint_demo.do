@@ -1,4 +1,4 @@
-*! jwselect 0.4.0: joint Wald-BIC selection and joint Wald/J pretrend testing.
+*! jwselect 0.5.0: joint Wald-BIC selection and joint Wald/J pretrend testing.
 *! Run from the extracted package directory. Leaves the dataset intact.
 version 16.1
 set more off

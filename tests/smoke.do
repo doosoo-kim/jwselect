@@ -37,7 +37,7 @@ mata: assert(max(abs(st_matrix("e(b)")-st_matrix("JW_EB_BASE"))) < 1e-10)
 assert "`e(cmd)'" == "jwselect"
 
 // Now compare the actually autoloaded Mata implementation to the oracle.
-mata: assert(jw_version() == "0.4.0-joint1")
+mata: assert(jw_version() == "0.5.0-adapters1")
 do tests/reference_fixture.do
 
 // User-picked restrictions must be used in one joint MD system.

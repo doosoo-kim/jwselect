@@ -1,0 +1,58 @@
+static_check.py
+PASS: generated Mata loader matches all 9 source modules
+PASS: generated loader has balanced block comments and safe Stata header
+PASS: no indexed Mata increment/decrement expressions
+PASS: Mata blocks use separate body and closing-brace lines
+PASS: no reserved identifier collisions in maintained Mata modules
+PASS: 74 package Mata functions; calls and delimiters consistent
+PASS: 21 matrix transport outputs consumed by command
+PASS: completion marker, entry-point checks, and first-call autoload test
+PASS: matrix-return statements use named matrices
+PASS: typed reference-fixture variables are scoped inside a test function
+PASS: release and concurrency tests share full missing-aware comparisons
+PASS: partial-cache fixture constructs and checks the intended matrix shapes
+PASS: 15 installable files exist; Python sources parse
+PASS: structural checks only; Stata/Mata compilation and integration NOT executed
+
+numerical_check.py
+PASS check_gls_and_schur
+PASS check_shared_covariance
+PASS check_fmsc_unbiased_risk
+PASS check_focused_targets_differ
+PASS check_wbic_joint_projection
+PASS check_rebasing_and_order
+PASS check_focused_envelope
+PASS check_sampling_scale_and_ties
+PASS: 8 independent numerical checks; Stata/Mata NOT executed
+
+reselect_check.py
+PASS check_error_identity_and_reselection
+PASS check_custom_weights_and_joint_selection
+PASS check_zero_nuisance_and_post_translation
+PASS check_first_min_tie_with_different_reporting_target
+PASS check_ellipsoid_and_candidate_envelope_bound
+PASS check_cross_cohort_covariance_and_scale
+PASS: 6 independent reselection checks; Stata/Mata NOT executed
+
+release030_reference.py
+PASS check_cached_blocked_scores_and_errors
+PASS check_candidate_ties_are_ordered
+PASS check_partial_cache_prefix_boundaries_with_mixed_components
+PASS check_budget_partition_and_worker_assignment
+PASS check_out_of_order_reduction_preserves_ties_and_diagnostics
+PASS: independent algebra and scheduling checks; Stata/Mata NOT executed.
+
+core_optimization_check.py
+PASS: preallocated all-subsets order for K=0..14 and stable deduplication
+PASS: 1992 multiple-RHS score comparisons with independent GLS
+Maximum absolute score difference: 3.55e-13
+PASS: full joint covariance and arbitrary cell-weight aggregation
+These are independent Python numerical checks; Mata/Stata was not run.
+
+joint040_reference.py
+joint040 numerical reference: PASS (460 independent MD-J/Wald comparisons).
+Correlated fixture: cohort mask [0, 0]; joint mask [1, 1].
+Full joint Wald=6.57894736842; sum of marginal Walds=12.5.
+These checks do not execute Stata/Mata; run tests/joint040_smoke.do in Stata.
+Committed Stata fixture matches the independent generator numerically.
+

@@ -1,4 +1,4 @@
-/* jwselect 0.4.0: portable, resumable objective-by-start jobs.
+/* jwselect 0.5.0: portable, resumable objective-by-start jobs.
 
    The 0.3.0 serialized-format identifiers are retained because the binary
    layouts are unchanged; jw_version() identifies the package build.

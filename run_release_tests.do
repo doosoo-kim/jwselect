@@ -1,10 +1,10 @@
-*! jwselect 0.4.0: Stata 17 release integration gate.
+*! jwselect 0.5.0: Stata 17 release integration gate.
 *! Run from this package's root in a FRESH Stata session.
 *! Clears data and estimates in memory. Save your work first.
 version 17.0
 clear all
 set more off
-display as text "Testing jwselect build 0.4.0-joint1"
+display as text "Testing jwselect build 0.5.0-adapters1"
 quietly set obs 1
 generate byte jw030_test_sentinel = 37
 args outdir
@@ -29,6 +29,7 @@ do tests/release030_partial_cache.do
 do tests/core_optimization.do
 do tests/joint040_smoke.do
 assert _N==1 & jw030_test_sentinel==37
-display as result "jwselect 0.4.0 release tests: PASS"
+do tests/csdid_adapter.do
+display as result "jwselect 0.5.0 release tests: PASS"
 display as text "This verifies implementation consistency, not global optimization or coverage."
 log close jw030tests

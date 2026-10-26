@@ -1,4 +1,4 @@
-*! jwselect 0.4.0 public joint selection/test regression checks.
+*! jwselect 0.5.0 public joint selection/test regression checks.
 *! Run from the extracted package root: do tests/joint040_smoke.do
 *! Does not clear, replace, or alter the active dataset.
 version 16.1

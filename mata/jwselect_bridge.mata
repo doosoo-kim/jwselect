@@ -253,5 +253,5 @@ void jw_pretrend_stata()
 /* Completion marker must be LAST: a partially compiled bridge is not ready. */
 string scalar jw_version()
 {
-    return("0.4.0-joint1")
+    return("0.5.0-adapters1")
 }

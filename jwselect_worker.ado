@@ -1,4 +1,4 @@
-*! jwselect 0.4.0 23oct2026
+*! jwselect 0.5.0 23oct2026
 program define jwselect_worker, rclass
     version 17.0
     syntax using/, WORKer(integer) WORKers(integer) ///

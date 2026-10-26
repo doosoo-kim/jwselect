@@ -1,4 +1,4 @@
-*! jwselect 0.4.0 23oct2026
+*! jwselect 0.5.0 26oct2026
 program define jwselect, eclass
     version 16.1
     if "`e(cmd)'" == "jwselect" {
@@ -32,7 +32,7 @@ end
 program define _jwselect_work, eclass
     version 16.1
     syntax [, BMAT(name) VMAT(name) CELLS(name) NUNits(real 0) ///
-        GAP(real 1) BASEline(string) ANTicipation(integer 0) ///
+        GAP(real 1) BASEline(string) ANTicipation(numlist integer max=1 >=0) ///
         SELECT(string) WBICScope(string) FOCUS(string) CANDidates(string) ///
         PREMatrix(name) CANDMatrix(name) JOINTMatrix(name) ///
         POSTWindow(numlist integer min=2 max=2) ///
@@ -44,6 +44,8 @@ program define _jwselect_work, eclass
         PREPare(string) CACHEMB(real 64) PROGRESS ///
         MAXCand(integer 4096) MAXJoint(integer 4096) NOCohort CELLEffects]
 
+    local anticipation_explicit = ("`anticipation'" != "")
+    if "`anticipation'" == "" local anticipation 0
     if "`baseline'" == "" local baseline cohort
     if "`select'" == "" local select wbic
     local wbicscope_explicit = ("`wbicscope'" != "")
@@ -124,6 +126,11 @@ program define _jwselect_work, eclass
     local N_clusters .
     local upstream_anticipation .
     local sourcecmd matrix
+    local sourceestimator matrix
+    local sourceversion
+    local sourcemethod supplied
+    local sourcemodel linear
+    local restriction_scale outcome_contrast
     if `frommatrix' {
         if `nunits' <= 1 | missing(`nunits') {
             di as err "nunits() must give the independent-unit count, greater than one"
@@ -139,13 +146,20 @@ program define _jwselect_work, eclass
         matrix `rawcells' = `cells'
     }
     else {
-        if "`e(cmd)'" != "jwdid" {
-            di as err "run jwdid first, or supply bmat(), vmat(), cells(), and nunits()"
+        if !inlist("`e(cmd)'", "jwdid", "csdid") {
+            di as err "run a supported jwdid or csdid fit first, or supply bmat(), vmat(), cells(), and nunits()"
             exit 301
         }
+        local sourceestimator `e(cmd)'
         quietly generate byte `sample' = e(sample)
-        if "`vce'" == "" local vce unconditional
-        _jwselect_jwdid, vce(`vce')
+        if "`sourceestimator'" == "csdid" {
+            if "`vce'" == "" local vce supplied
+            _jwselect_csdid, vce(`vce')
+        }
+        else {
+            if "`vce'" == "" local vce unconditional
+            _jwselect_jwdid, vce(`vce')
+        }
         matrix `rawb' = r(bgt)
         matrix `rawV' = r(Vgt)
         matrix `rawcells' = r(cells)
@@ -158,12 +172,41 @@ program define _jwselect_work, eclass
         local gap = r(gap)
         local upstream_anticipation = r(anticipation)
         local sourcecmd `"`r(sourcecmd)'"'
+        local sourceversion `"`r(sourceversion)'"'
+        local sourcemethod `"`r(method)'"'
+        local sourcemodel `"`r(model)'"'
+        local restriction_scale `"`r(restriction_scale)'"'
+        // These backends supply baseline ATTs and zero-placebo moments.
+        // Their effects cannot be rebased by subtracting another ATT.
+        if "`sourceestimator'" == "csdid" | "`sourcemodel'" == "nonlinear" {
+            if "`baseline'" != "cohort" {
+                di as err "CS-DR and nonlinear adapters require baseline(cohort); alternate-baseline refits are not implemented"
+                exit 198
+            }
+            local source_delta = `upstream_anticipation'
+            if "`sourceestimator'" == "jwdid" local source_delta = `upstream_anticipation'-1
+            if `anticipation_explicit' & `anticipation' != `source_delta' {
+                di as err "anticipation() must match the source estimator's maintained baseline (`source_delta')"
+                exit 198
+            }
+            local anticipation = `source_delta'
+            tempname normbad
+            forvalues j = 1/`=rowsof(`rawcells')' {
+                if abs(`rawcells'[`j',2]-(`rawcells'[`j',1]-`gap'*(`source_delta'+1))) < 1e-8*`gap' {
+                    mata: st_numscalar("`normbad'", max(abs(st_matrix("`rawV'")[`j',.])))
+                    if `rawb'[1,`j'] != 0 | scalar(`normbad') != 0 {
+                        di as err "The source baseline must be a structural zero with zero covariance"
+                        exit 498
+                    }
+                }
+            }
+        }
     }
 
     // Check the entry point as well as the completion/version marker.
     capture mata: assert(findexternal("jw_stata()") != NULL)
     local entryrc = _rc
-    capture mata: assert(jw_version() == "0.4.0-joint1")
+    capture mata: assert(jw_version() == "0.5.0-adapters1")
     local versionrc = _rc
     if `entryrc' | `versionrc' {
         capture mata: assert(findexternal("jw_version()") != NULL)
@@ -185,7 +228,7 @@ program define _jwselect_work, eclass
         }
         capture mata: assert(findexternal("jw_stata()") != NULL)
         local entryrc = _rc
-        capture mata: assert(jw_version() == "0.4.0-joint1")
+        capture mata: assert(jw_version() == "0.5.0-adapters1")
         local versionrc = _rc
         if `entryrc' | `versionrc' {
             di as err "The Mata loader ended without defining the complete jwselect module"
@@ -286,11 +329,16 @@ program define _jwselect_work, eclass
     }
     ereturn local postwindow `postwindow'
     ereturn local sourcecmd `"`sourcecmd'"'
+    ereturn local source_estimator `sourceestimator'
+    ereturn local source_version `sourceversion'
+    ereturn local source_method `sourcemethod'
+    ereturn local source_model `sourcemodel'
+    ereturn local restriction_scale `restriction_scale'
     ereturn local cmdline `"jwselect `0'"'
     ereturn local estat_cmd jwselect_estat
     ereturn local predict jwselect_p
-    ereturn local version 0.4.0
-    ereturn local build 0.4.0-joint1
+    ereturn local version 0.5.0
+    ereturn local build 0.5.0-adapters1
     ereturn local cmd jwselect
     _jwselect_display, `nocohort' `celleffects'
 end

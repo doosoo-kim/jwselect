@@ -1,7 +1,7 @@
 version 17.0
 set more off
 
-/* jwselect 0.4.0: design, units, normalization, and fixed-target checks.
+/* jwselect 0.5.0: design, units, normalization, and fixed-target checks.
    Run from the add-on test runner, or with jwselect already on adopath.
    Synthetic B and V describe 16 raw cohort/date estimates. V is their
    SAMPLING covariance. N_units=500 is the independent-unit count for BIC;

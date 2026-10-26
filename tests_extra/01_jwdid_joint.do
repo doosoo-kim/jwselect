@@ -1,4 +1,4 @@
-*! Additional jwselect 0.4.0 tests: actual jwdid fits, joint WBIC and Wald/MD J.
+*! Additional jwselect 0.5.0 tests: actual jwdid fits, joint WBIC and Wald/MD J.
 *! Test revision 3: correct _datasignature syntax for source-variable checks.
 *! Stata 17.0. Save your work first: this file replaces the dataset in memory.
 *! No dependencies are installed; no log is opened. Final Stata/MP 17 PASS reported by the author.
@@ -15,7 +15,7 @@ if `"`XJ_missing'"' != "" {
     exit 499
 }
 quietly _jwselect_load
-mata: assert(jw_version()=="0.4.0-joint1")
+mata: assert(jw_version()=="0.5.0-adapters1")
 
 foreach XJ_fun in close equal maps oracle selection pretrend {
     capture mata: mata drop XJ_`XJ_fun'()
@@ -366,7 +366,7 @@ foreach XJ_backend in regress reghdfe {
                     quietly estimates restore `XJ_source'
                     quietly jwselect, `XJ_options' vce(`XJ_vce')
                     display as text "CHECK direct fit version/scope/VCE: version=`e(version)', scope=`e(wbic_scope)', covariance=`e(covariance)'"
-                    assert `"`e(version)'"'=="0.4.0"
+                    assert `"`e(version)'"'=="0.5.0"
                     assert `"`e(wbic_scope)'"'=="joint"
                     assert `"`e(covariance)'"'=="`XJ_vce'"
                     display as text "CHECK direct fit dimensions: G=" e(G) ", P=" e(P) ", K=" e(K)

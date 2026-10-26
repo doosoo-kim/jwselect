@@ -1,4 +1,4 @@
-/* jwselect 0.4.0: shared contracts. All V matrices use sampling covariance. */
+/* jwselect 0.5.0: shared contracts. All V matrices use sampling covariance. */
 struct jw_model {
     real colvector z
     real matrix V

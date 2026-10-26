@@ -1,4 +1,4 @@
-*! jwselect estat 0.4.0 23oct2026
+*! jwselect estat 0.5.0 23oct2026
 program define jwselect_estat, rclass
     version 16.1
     if "`e(cmd)'" != "jwselect" error 301
