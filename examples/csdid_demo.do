@@ -1,4 +1,4 @@
-*! jwselect 0.5.0: CS-DR with optional csdid 2.0.1+ dependency.
+*! jwselect 0.7.0: CS-DR with optional csdid 2.0.1+ dependency.
 *! Run from the extracted package directory. Replaces data and estimates.
 *! Installs nothing; see README.md for the pinned csdid installation.
 version 16.1

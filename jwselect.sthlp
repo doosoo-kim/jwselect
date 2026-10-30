@@ -1,6 +1,6 @@
 {smcl}
-{* *! jwselect 0.5.0 26oct2026}{...}
-{title:jwselect -- Select preperiod restrictions after csdid or jwdid}
+{* *! jwselect 0.7.0 30oct2026}{...}
+{title:jwselect -- Select preperiod restrictions after csdid, jwdid, or Sun-Abraham}
 
 {p 4 4 2}
 Main command for Stata 16.1 or later; the prepared-workflow commands
@@ -18,6 +18,7 @@ and release tests require Stata 17.
 {opt postwindow(# #)}
 {opt aggregate(equalcohort|equalcell)} {opt aggweights(name)}
 {opt vce(unconditional|conditional|supplied)}
+{opt restrictions(index|placebo)}
 {opt level(#)} {opt inference(auto|reselect|envelope|none)}
 {opt gamma(#)} {opt mcerr(#)} {opt reps(#)} {opt seed(#)}
 {opt optstarts(#)} {opt optmaxeval(#)} {opt opttol(#)} {opt optreps(#)}
@@ -42,7 +43,7 @@ joint covariance, forms baseline treatment-effect contrasts and optional
 preperiod contrasts, selects restrictions, and performs minimum-distance (MD)
 adjustment. It stores complete joint fixed-selection covariance matrices.
 It reads unaggregated {cmd:csdid} results or joint {cmd:jwdid estat attgt}
-margins. Already aggregated {cmd:estat event} vectors are not supported.
+margins, or validated Sun-Abraham inputs from {help jwselect_sa}. Already aggregated {cmd:estat event} vectors are not supported.
 
 {p 4 4 2}
 The baseline is g-gap*(1+delta) with {cmd:baseline(cohort)} (default), or
@@ -91,6 +92,23 @@ e() in the usual Stata manner; use {cmd:estimates store} before calling it if
 you want to compare specifications. On failure, original estimation results
 and the RNG state are restored. The RNG state is also restored on success.
 
+{title:Optional Sun-Abraham adapter}
+
+{p 4 4 2}
+Fit {cmd:jwselect_sa y, ivar(id) tvar(time) gvar(first_treat)} before calling
+{cmd:jwselect}. The wrapper uses optional {cmd:eventstudyinteract} and validates
+the unbinned, no-covariate, never-treated design proved in draft v46_12.
+It generates all observed event indicators and omits only event -1. Keep a
+stored source fit and restore it before each selection specification.
+See {help jwselect_sa} for installation, supported data, and saved results.
+
+{p 4 4 2}
+The full unit-clustered regression covariance is used with {cmd:vce(supplied)}.
+Linear rebasing via {cmd:baseline(common)} or {cmd:anticipation()} is supported.
+All reporting weights remain fixed: population IW aggregation with estimated
+cohort-share uncertainty is not implemented. Importing raw, unverified
+{cmd:eventstudyinteract} or {cmd:reghdfe} results is not supported.
+
 {title:Optional CS-DR adapter}
 
 {p 4 4 2}
@@ -99,7 +117,7 @@ The adapter targets the 2.0.1 API and requires version 2.0.1 or later in the 2.x
 line; older SSC 1.x releases are rejected. The pinned 2.0.1 source commit is
 {cmd:f98bcea0691b1670c409bb7e3cc81d60705b4f84}; the README gives its installation
 command. Record {cmd:csdid version} for reproducibility. No dependency is installed by
-{cmd:jwselect}; the matrix interface needs neither {cmd:csdid} nor {cmd:jwdid}.
+{cmd:jwselect}; the matrix interface needs no upstream estimator.
 
 {p 4 4 2}
 Run {cmd:csdid} with {cmd:method(dr) nevertreated base_period(universal) analytical pointwise}.
@@ -125,10 +143,28 @@ from {cmd:csdid}'s value, and an explicit value must match it.
 {cmd:method(logit)} and {cmd:method(poisson)} are supported under the balanced,
 unweighted, never-treated, unit-clustered and time-invariant-covariate contract
 above. Other nonlinear methods, including {cmd:ppmlhdfe}, are not supported.
-The adapter obtains joint outcome-scale ATT and placebo margins using
-{cmd:estat attgt}; nonlinear regression coefficients are not used as ATTs.
-{cmd:vce(unconditional)} is the default; {cmd:vce(conditional)} conditions on
-the observed covariate distribution for the margins calculation.
+{cmd:restrictions(index)} selects the full lead coefficient block: the intercept
+and every covariate interaction at a cohort/date. The ATT remains on the outcome
+scale. Unit scores provide the full joint covariance between ATT and index
+coefficients, retaining shared nuisance and cross-cohort/date terms.
+{cmd:vce(unconditional)}, the default, adds empirical target-covariate-distribution
+uncertainty and its cross terms; {cmd:vce(conditional)} conditions on the observed
+covariates. Centered interactions and upstream {cmd:xasis} are supported; index
+coefficients are reported in the original covariate basis.
+
+{p 4 4 2}
+Each complete date block is one selection unit. With q covariates it has q+1
+identified coefficients. Wald-BIC penalizes the restriction rank, not the number
+of selected dates. Generated candidate families enumerate dates; {cmd:prematrix()}
+selects complete blocks. Custom candidate masks have {cmd:e(K)} coefficient
+columns in {cmd:e(hmap)} order and must assign the same bit to every component
+of a date. Split, unidentified, or singular blocks are rejected.
+
+{p 4 4 2}
+For backward compatibility, omitted {cmd:restrictions()} means
+{cmd:restrictions(placebo)}: joint {cmd:estat attgt} outcome-scale ATT and average
+placebo margins supply the existing inputs. The new option is only accepted
+after supported nonlinear jwdid logit or Poisson fits.
 
 {p 4 4 2}
 Retain {cmd:baseline(cohort)} and the upstream normalization. If
@@ -141,7 +177,8 @@ behavior is unchanged.
 
 {p 4 4 2}
 The maintained estimate d is an outcome-scale ATT; optional h values are zero
-average outcome-scale placebo effects. For a fixed candidate, the adjustment
+average outcome-scale placebo effects, or full conditional-index lead blocks
+under {cmd:restrictions(index)}. For a fixed candidate, the adjustment
 is d - Cov(d,h) inv(Var(h)) h, using the same joint covariance throughout.
 This is a Gaussian covariance-weighted moment adjustment. Its Wald--J identity
 belongs to the canonical quadratic MD problem with unrestricted post effects
@@ -150,7 +187,9 @@ CS-DR re-estimation at alternative base periods.
 
 {p 4 4 2}
 With covariate interactions, zero average nonlinear placebo effects can be
-weaker than setting every index-pretrend coefficient to zero. Identification,
+weaker than setting every index-pretrend coefficient to zero. The index route
+implements the v48_3 full-block target-level MD construction; the separate
+coefficient-MD projection followed by nonlinear prediction is not implemented. Identification,
 joint asymptotic normality and consistent covariance are required. CS-DR
 robustness conditions apply to the baseline and each placebo moment used;
 the backend name alone does not establish those conditions. The MD adjustment
@@ -186,7 +225,7 @@ Joint WBIC can select different restrictions than cohort-wise WBIC.
 {cmd:select(focused)} minimizes FMSC = v0 - 2*gain + adjustment^2 in the
 sampling-covariance scale. This is the draft's asymptotic-covariance score
 divided by N; it gives the same minimizer. The squared bias correction is
-untruncated. The first stored candidate wins exact ties. Generated and custom
+untruncated. Exact focused-score ties favor fewer restrictions, then the first stored candidate among equal sizes. Generated and custom
 local families put baseline-only first; a supplied jointmatrix() retains its
 first-occurrence row order and prepends baseline-only only if absent.
 
@@ -221,7 +260,7 @@ Joint WBIC and aggregate-focused search use the Cartesian product of local famil
 {cmd:jointmatrix(JM)} supplies a prespecified binary matrix with K columns in
 hmap order. Each row of JM is a complete joint configuration; it need not be
 a Cartesian-product member. The empty row is prepended only if absent; duplicates
-are coalesced in first-occurrence order. The first stored candidate wins ties. {cmd:maxcand(4096)} limits each local family and
+are coalesced in first-occurrence order. Focused-score ties favor fewer restrictions, then stored order; Wald-BIC ties use stored order. {cmd:maxcand(4096)} limits each local family and
 {cmd:maxjoint(4096)} limits the joint family. Exceeding a limit causes an error;
 there is no truncation or greedy approximation. For K_g eligible optional dates per cohort, the joint
 Cartesian family has product(K_g+1) nested configurations or 2^sum(K_g)
@@ -232,7 +271,7 @@ family is below maxcand(). Explicit candidate loading storage can be substantial
 
 {p 4 4 2}
 {cmd:estat pretrend} jointly tests all eligible optional preperiod contrasts
-(or outcome-scale placebo moments for the new adapters) using their full covariance. {cmd:estat pretrend, prematrix(P)} tests
+(or outcome-scale placebo moments / full index blocks for the adapters) using their full covariance. {cmd:estat pretrend, prematrix(P)} tests
 a prespecified subset; P has two columns, cohort and calendar time, and must
 contain only eligible optional dates. The maintained baseline is never tested.
 
@@ -442,7 +481,8 @@ e(joint_candidates) is present for joint WBIC and aggregate-focused searches
 with K>0.
 
 {p 4 4 2}
-Canonical z orders post contrasts first, optional precontrasts second.
+Canonical z orders post targets first, optional restriction estimates second.
+For index mode these are outcome-scale ATTs followed by raw index coefficients.
 e(loading)*e(z)' reproduces e(b)'; e(loading)*e(V_z)*e(loading)' reproduces
 e(V_fixed). e(output_map) columns are kind and actual cohort. Kinds: 1 cohort
 (manual/WBIC/cohort focus), 2 aggregate of cohort-focused cells, 3 aggregate
@@ -467,7 +507,7 @@ Macros record baseline, selection_method, wbic_scope, focus, candidate_type, agg
 covariance, inference, postwindow, sourcecmd, cmdline, inferoutputs,
 and prepared_directory. Source metadata are e(source_estimator),
 e(source_version), e(source_method), e(source_model), and e(restriction_scale).
-The source estimator is matrix, csdid, or jwdid. e(source_version) is empty
+The source estimator is matrix, csdid, jwdid, or eventstudyinteract. e(source_version) is empty
 when the source does not expose a verified version, including jwdid; retain
 {cmd:which jwdid} output separately. e(version) and e(build) identify the
 installed release.
@@ -481,10 +521,28 @@ validated_value, validation_gap, radius_fraction. validated_value is the
 independent empirical objective before Monte Carlo bound correction;
 validation_gap is its absolute difference from search_value. The radius
 fraction is the unit-ball norm. e(inference_extrema) contains output, objective, then K nuisance
-means in hmap order; inactive means equal the observed precontrasts.
+means in hmap order; inactive means equal the observed restriction estimates.
 Final bounds use extrema over all four checked points, so an output endpoint
 need not use the point from the matching objective row. Normal-inference
 outputs with no active adjustment have zero counts and missing objectives.
+
+{title:Conditional-index stored results}
+
+{p 4 4 2}
+{cmd:e(K)} counts scalar index restrictions; {cmd:e(K_blocks)} counts date blocks.
+{cmd:e(blockmap)} contains cohort, time, and rank. {cmd:e(index_b)},
+{cmd:e(V_index)}, and {cmd:e(Cov_att_index)} contain lead coefficients, their
+covariance, and raw-ATT/index covariance. {cmd:e(index_hmap)} maps components to
+cohort/date; {cmd:e(upstream_cells)} maps raw ATT rows. {cmd:e(index_terms)} records
+source coefficient positions and components (0 intercept, 1..q covariates in
+{cmd:e(index_covariates)} order). For centered fits the intercept position is an
+anchor: the reported raw intercept also subtracts cohort means times slopes.
+{cmd:e(index_basis)} is raw_covariates. {cmd:estat design} displays these maps.
+{cmd:e(index_covariance_factor)} is the validated common finite-sample factor;
+{cmd:e(index_covariance_error)} and {cmd:e(index_margins_error)} record relative
+reconstruction errors. {cmd:e(upstream_vce)} is conditional for the source table;
+adjusted inference uses the requested {cmd:e(covariance)} convention.
+With no eligible leads, index matrices are absent and both counts are zero.
 
 {title:Examples}
 
@@ -529,7 +587,11 @@ families can make these checks expensive.
 
 {p 4 4 2}
 For reproducible matrix-input examples, see {cmd:examples/matrix_demo.do}
-and {cmd:examples/joint_demo.do}. The joint public-command test is
+and {cmd:examples/joint_demo.do}. Both examples are self-contained.
+
+{p 4 4 2}
+Developer tests are supplied separately in the full source archive, not this
+clean distribution. From that source archive, the joint public-command test is
 {cmd:do tests/joint040_smoke.do}, also included in the release driver.
 Run {cmd:do run_release_tests.do} from the package directory in a fresh Stata 17
 session. The test clears data and estimates; save your work first.

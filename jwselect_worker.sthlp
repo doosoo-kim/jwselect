@@ -133,7 +133,9 @@ If a search itself fails, its original return code is preserved through cleanup.
 {title:Validation}
 
 {p 4 4 2}
-Run {cmd:do run_release_tests.do} from the package root in a fresh Stata 17
+Developer validation scripts are supplied in the full source archive.
+They are not included in this clean distribution. From the source archive,
+run {cmd:do run_release_tests.do} in a fresh Stata 17
 session. The test clears data and estimates; save your work first.
 Source and independent numerical checks do not substitute for executing
 the Stata tests.

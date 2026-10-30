@@ -1,4 +1,4 @@
-*! jwselect 0.5.0 26oct2026
+*! jwselect 0.7.0 30oct2026
 program define jwselect, eclass
     version 16.1
     if "`e(cmd)'" == "jwselect" {
@@ -36,7 +36,7 @@ program define _jwselect_work, eclass
         SELECT(string) WBICScope(string) FOCUS(string) CANDidates(string) ///
         PREMatrix(name) CANDMatrix(name) JOINTMatrix(name) ///
         POSTWindow(numlist integer min=2 max=2) ///
-        AGGregate(string) AGGWeights(name) VCE(string) ///
+        AGGregate(string) AGGWeights(name) VCE(string) RESTRictions(string) ///
         INFERence(string) Level(cilevel) GAMma(real .01) ///
         MCErr(real .001) REPS(integer 19999) SEED(integer 12345) ///
         OPTStarts(integer 4) OPTMaxeval(integer 400) OPTTol(real .02) ///
@@ -54,7 +54,7 @@ program define _jwselect_work, eclass
     if "`candidates'" == "" local candidates nested
     if "`aggregate'" == "" local aggregate equalcohort
     if "`inference'" == "" local inference auto
-    foreach opt in baseline select wbicscope focus candidates aggregate vce inference {
+    foreach opt in baseline select wbicscope focus candidates aggregate vce inference restrictions {
         local `opt' = lower("``opt''")
     }
     if !inlist("`baseline'", "cohort", "common") error 198
@@ -67,6 +67,10 @@ program define _jwselect_work, eclass
     if !inlist("`focus'", "cohort", "aggregate", "both") error 198
     if !inlist("`candidates'", "nested", "all") error 198
     if !inlist("`aggregate'", "equalcohort", "equalcell") error 198
+    if !inlist("`restrictions'", "", "index", "placebo") {
+        di as err "restrictions() must be index or placebo"
+        exit 198
+    }
     if !inlist("`inference'", "auto", "reselect", "envelope", "none") error 198
     if inlist("`inference'", "reselect", "envelope") & "`select'" != "focused" {
         di as err "inference(reselect or envelope) requires select(focused)"
@@ -119,7 +123,20 @@ program define _jwselect_work, eclass
         di as err "supply bmat(), vmat(), and cells() together"
         exit 198
     }
+    if "`restrictions'" != "" {
+        if `frommatrix' | "`e(cmd)'" != "jwdid" | !inlist("`e(cmd2)'", "logit", "poisson") {
+            di as err "restrictions() requires a supported nonlinear jwdid logit or poisson fit"
+            exit 198
+        }
+    }
     tempname rawb rawV rawcells rawtable
+    local rawh
+    local rawVh
+    local rawVdh
+    local rawhmap
+    local index_terms
+    local index_covariates
+    local N_index 0
     tempvar sample
     local N_obs .
     local N_covariates .
@@ -146,19 +163,27 @@ program define _jwselect_work, eclass
         matrix `rawcells' = `cells'
     }
     else {
-        if !inlist("`e(cmd)'", "jwdid", "csdid") {
-            di as err "run a supported jwdid or csdid fit first, or supply bmat(), vmat(), cells(), and nunits()"
+        if !inlist("`e(cmd)'", "jwdid", "csdid", "jwselect_sa") {
+            di as err "run a supported jwdid, csdid, or jwselect_sa fit first, or supply bmat(), vmat(), cells(), and nunits()"
+            if "`e(cmd)'" == "reghdfe" di as err "For Sun-Abraham, fit with jwselect_sa so the complete event map and estimation sample can be verified"
             exit 301
         }
         local sourceestimator `e(cmd)'
         quietly generate byte `sample' = e(sample)
-        if "`sourceestimator'" == "csdid" {
+        if "`sourceestimator'" == "jwselect_sa" {
+            if "`vce'" == "" local vce supplied
+            _jwselect_sa, vce(`vce')
+        }
+        else if "`sourceestimator'" == "csdid" {
             if "`vce'" == "" local vce supplied
             _jwselect_csdid, vce(`vce')
         }
         else {
             if "`vce'" == "" local vce unconditional
-            _jwselect_jwdid, vce(`vce')
+            if "`restrictions'" == "index" {
+                _jwselect_index, vce(`vce')
+            }
+            else _jwselect_jwdid, vce(`vce')
         }
         matrix `rawb' = r(bgt)
         matrix `rawV' = r(Vgt)
@@ -176,6 +201,23 @@ program define _jwselect_work, eclass
         local sourcemethod `"`r(method)'"'
         local sourcemodel `"`r(model)'"'
         local restriction_scale `"`r(restriction_scale)'"'
+        if "`restriction_scale'" == "conditional_index" {
+            local N_index = r(N_index)
+            local upstream_vce `"`r(upstream_vce)'"'
+            local index_covariance_factor = r(covariance_factor)
+            local index_covariance_error = r(covariance_error)
+            local index_margins_error = r(margins_error)
+            local index_covariates `"`r(index_covariates)'"'
+            if `N_index' > 0 {
+                tempname rawh rawVh rawVdh rawhmap index_terms
+                matrix `rawh' = r(h)
+                matrix `rawVh' = r(Vh)
+                matrix `rawVdh' = r(Vdh)
+                matrix `rawhmap' = r(hmap)
+                matrix `index_terms' = r(index_terms)
+            }
+        }
+        if "`sourceestimator'" == "jwselect_sa" local sourceestimator eventstudyinteract
         // These backends supply baseline ATTs and zero-placebo moments.
         // Their effects cannot be rebased by subtracting another ATT.
         if "`sourceestimator'" == "csdid" | "`sourcemodel'" == "nonlinear" {
@@ -206,7 +248,7 @@ program define _jwselect_work, eclass
     // Check the entry point as well as the completion/version marker.
     capture mata: assert(findexternal("jw_stata()") != NULL)
     local entryrc = _rc
-    capture mata: assert(jw_version() == "0.5.0-adapters1")
+    capture mata: assert(jw_version() == "0.7.0-index1")
     local versionrc = _rc
     if `entryrc' | `versionrc' {
         capture mata: assert(findexternal("jw_version()") != NULL)
@@ -228,7 +270,7 @@ program define _jwselect_work, eclass
         }
         capture mata: assert(findexternal("jw_stata()") != NULL)
         local entryrc = _rc
-        capture mata: assert(jw_version() == "0.5.0-adapters1")
+        capture mata: assert(jw_version() == "0.7.0-index1")
         local versionrc = _rc
         if `entryrc' | `versionrc' {
             di as err "The Mata loader ended without defining the complete jwselect module"
@@ -239,7 +281,7 @@ program define _jwselect_work, eclass
     }
     tempname outb outV outtable outmap outselection outbases outpost outh ///
         outbcells outVcells outcellsel outweights outscores outfamily outjoint ///
-        outz outzV outA outT outdiagnostics outextrema
+        outz outzV outA outT outdiagnostics outextrema outblockmap
     if "`select'" == "focused" & ("`inference'" != "none" | `"`prepare'"'!="") quietly set seed `seed'
     if "`select'" == "focused" & inlist("`inference'", "auto", "reselect") {
         di as txt "Computing focused reselection inference (numerical search and independent simulation)..."
@@ -293,6 +335,25 @@ program define _jwselect_work, eclass
     ereturn scalar N_clusters = `N_clusters'
     ereturn scalar G = `_G'
     ereturn scalar K = `_K'
+    ereturn scalar K_blocks = `_K_blocks'
+    if "`restriction_scale'" == "conditional_index" {
+        ereturn local upstream_vce `upstream_vce'
+        ereturn local index_basis raw_covariates
+        ereturn scalar index_covariance_factor = `index_covariance_factor'
+        ereturn scalar index_covariance_error = `index_covariance_error'
+        ereturn scalar index_margins_error = `index_margins_error'
+    }
+    if "`restriction_scale'" == "conditional_index" & `_K' > 0 {
+        ereturn matrix blockmap = `outblockmap'
+        ereturn matrix index_b = `rawh'
+        ereturn matrix V_index = `rawVh'
+        ereturn matrix Cov_att_index = `rawVdh'
+        ereturn matrix index_hmap = `rawhmap'
+        ereturn matrix index_terms = `index_terms'
+        ereturn matrix upstream_cells = `rawcells'
+        ereturn local index_covariates `"`index_covariates'"'
+        ereturn local index_basis raw_covariates
+    }
     ereturn scalar P = `_P'
     ereturn scalar gap = `gap'
     ereturn scalar anticipation = `anticipation'
@@ -334,11 +395,15 @@ program define _jwselect_work, eclass
     ereturn local source_method `sourcemethod'
     ereturn local source_model `sourcemodel'
     ereturn local restriction_scale `restriction_scale'
+    if "`sourcemodel'" == "nonlinear" {
+        if "`restrictions'" == "" local restrictions placebo
+        ereturn local restrictions `restrictions'
+    }
     ereturn local cmdline `"jwselect `0'"'
     ereturn local estat_cmd jwselect_estat
     ereturn local predict jwselect_p
-    ereturn local version 0.5.0
-    ereturn local build 0.5.0-adapters1
+    ereturn local version 0.7.0
+    ereturn local build 0.7.0-index1
     ereturn local cmd jwselect
     _jwselect_display, `nocohort' `celleffects'
 end

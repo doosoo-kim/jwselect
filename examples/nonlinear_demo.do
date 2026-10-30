@@ -1,4 +1,4 @@
-*! jwselect 0.5.0: nonlinear DiD with optional jwdid dependency.
+*! jwselect 0.7.0: nonlinear DiD with optional jwdid dependency.
 *! Run from the extracted package directory. Replaces data and estimates.
 *! Installs nothing; jwdid and its dependencies must already be available.
 version 16.1

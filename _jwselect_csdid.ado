@@ -1,4 +1,4 @@
-*! jwselect 0.5.0 26oct2026: read-only CS-DR adapter for csdid 2.0.1+
+*! jwselect 0.7.0 30oct2026: read-only CS-DR adapter for csdid 2.0.1+
 program define _jwselect_csdid, rclass
     version 16.1
     syntax [, VCE(string)]

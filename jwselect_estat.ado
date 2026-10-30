@@ -1,4 +1,4 @@
-*! jwselect estat 0.5.0 23oct2026
+*! jwselect estat 0.7.0 23oct2026
 program define jwselect_estat, rclass
     version 16.1
     if "`e(cmd)'" != "jwselect" error 301
@@ -16,9 +16,20 @@ program define jwselect_estat, rclass
         if e(K)>0 matlist e(hmap), format(%12.0g)
         local copyfrom baselines postmap
         if e(K)>0 local copyfrom `copyfrom' hmap
+        if "`e(restriction_scale)'" == "conditional_index" & e(K)>0 {
+            di as txt "Selectable date blocks: cohort, time, number of independent index coefficients."
+            matlist e(blockmap), format(%12.0g)
+            di as txt "Coefficient components use the raw covariate basis; component 0 is the intercept."
+            di as txt "Covariate components 1,... follow: `e(index_covariates)'"
+            matlist e(index_terms), format(%12.0g)
+            local copyfrom `copyfrom' blockmap index_terms
+        }
         local copyto `copyfrom' 
     }
     else if "`subcmd'" == "selection" {
+        if "`e(restriction_scale)'" == "conditional_index" {
+            di as txt "Mask columns index coefficients in e(hmap); every date block moves together."
+        }
         matlist e(candidates), format(%10.0g)
         if e(K)>0 matlist e(selection), format(%10.0g)
         local copyfrom candidates

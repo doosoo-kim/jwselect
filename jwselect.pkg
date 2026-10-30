@@ -1,9 +1,13 @@
 v 3
-d jwselect 0.5.0: preperiod selection after jwdid or csdid
-d 26oct2026. Optional CS-DR and nonlinear DiD adapters; joint selection and testing.
+d jwselect 0.7.0: preperiod selection after jwdid, csdid, or Sun-Abraham
+d 30oct2026. Full conditional-index nonlinear blocks; optional csdid/jwdid/SA adapters.
 f jwselect.ado
+f _jwselect_index.ado
 f _jwselect_jwdid.ado
 f _jwselect_csdid.ado
+f jwselect_sa.ado
+f _jwselect_sa.ado
+f jwselect_sa.sthlp
 f _jwselect_display.ado
 F _jwselect_mata.do
 f jwselect_estat.ado

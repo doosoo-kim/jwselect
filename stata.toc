@@ -1,3 +1,3 @@
 v 3
-d jwselect 0.5.0 (26oct2026): preperiod selection after jwdid or csdid
+d jwselect 0.7.0 (30oct2026): preperiod selection after jwdid, csdid, or Sun-Abraham
 p jwselect Select preperiod restrictions, estimate cohort and aggregate effects

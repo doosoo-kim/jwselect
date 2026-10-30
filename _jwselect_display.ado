@@ -1,4 +1,4 @@
-*! jwselect display 0.5.0 23oct2026
+*! jwselect display 0.7.0 23oct2026
 program define _jwselect_display
     version 16.1
     syntax [, NOCohort CELLEffects]
@@ -43,7 +43,11 @@ program define _jwselect_display
     di as txt "Treatment cohorts" _col(39) "{c |} " as res %9.0g e(G)
     if !missing(e(N_covariates)) di as txt "Covariates" _col(39) "{c |} " as res %9.0g e(N_covariates)
     di as txt "Target post-treatment cells" _col(39) "{c |} " as res %9.0g e(P)
-    di as txt "Eligible over-identifying preperiods" _col(39) "{c |} " as res %9.0g e(K)
+    if "`e(restriction_scale)'" == "conditional_index" {
+        di as txt "Eligible preperiod blocks" _col(39) "{c |} " as res %9.0g e(K_blocks)
+        di as txt "Index-coefficient restrictions" _col(39) "{c |} " as res %9.0g e(K)
+    }
+    else di as txt "Eligible over-identifying preperiods" _col(39) "{c |} " as res %9.0g e(K)
     di as txt "{hline 38}{c +}{hline 39}"
     di as txt "Baseline" _col(39) "{c |} " as res "`base'"
     di as txt "Allowed anticipation (delta)" _col(39) "{c |} " as res %9.0g e(anticipation)
@@ -69,6 +73,12 @@ program define _jwselect_display
         di as txt "Optional restrictions set average outcome-scale placebo effects to zero."
         di as txt "J equals Wald for this moment-adjustment criterion; no upstream model is refitted."
     }
+    if "`e(restriction_scale)'" == "conditional_index" {
+        di as txt "Each optional date selects its whole conditional-index coefficient block."
+        di as txt "Wald-BIC counts independent coefficient restrictions, not selected dates."
+        di as txt "ATT estimates use target-level MD with the full joint covariance."
+        di as txt "This is not a constrained nonlinear refit; adjusted ATTs need not preserve outcome bounds."
+    }
     if "`e(baseline)'" == "common" di as txt "q denotes the earliest treatment cohort."
     tempname upstream
     capture matrix `upstream' = e(upstream_table)
@@ -78,6 +88,10 @@ program define _jwselect_display
         di as txt "Time is calendar time. Zero-SE reference rows are normalizations."
         if "`source'" == "csdid" di as txt "Pointwise normal inference below uses csdid's analytical covariance, before selection."
         else di as txt "Inference below is copied from `source'; it precedes preperiod selection."
+        if "`e(upstream_vce)'" == "conditional" {
+            di as txt "This source comparison table uses conditional margins SEs."
+            di as txt "The adjusted results below use vce(`e(covariance)') and the full ATT-index covariance."
+        }
         local statlabel "`e(upstream_stat)'"
         if !inlist("`statlabel'", "t", "z") local statlabel "b/se"
         di as txt %7s "Cohort" " " %7s "Time" " {c |} " ///
@@ -150,6 +164,7 @@ program define _jwselect_periods
                 }
             }
         }
+        local periods : list uniq periods
         if "`periods'" == "" local periods "(none)"
         di as txt "  cohort " as res %10.0g `cohort' ///
             as txt "  baseline " as res %10.0g `baseperiod' ///
