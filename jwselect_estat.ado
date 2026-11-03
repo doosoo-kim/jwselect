@@ -1,4 +1,4 @@
-*! jwselect estat 0.7.0 23oct2026
+*! jwselect estat 0.8.8 03nov2026
 program define jwselect_estat, rclass
     version 16.1
     if "`e(cmd)'" != "jwselect" error 301
@@ -47,7 +47,7 @@ program define jwselect_estat, rclass
         local copyto scores
     }
     else if "`subcmd'" == "covariance" {
-        di as txt "Fixed-selection joint covariance; for focused inference use e(ci) and e(pvalue)."
+        di as txt "Fixed-selection joint covariance; for selection-adjusted inference use e(ci) and e(pvalue)."
         matlist e(V_fixed), format(%11.5g)
         local copyfrom V_fixed
         local copyto V_fixed
@@ -71,6 +71,53 @@ program define jwselect_estat, rclass
                 local copyfrom `copyfrom' inference_extrema
                 local copyto `copyto' inference_extrema
             }
+        }
+        if "`e(inference)'" == "wbic" {
+            local matrices : e(matrices)
+            if strpos(" `matrices' ", " wbic_bb_grid_diagnostics ") {
+                di as txt "Berger-Boos fallback. Route 1 evaluated the grid. Route 2 is an exact normal calculation."
+                di as txt "Route 8 uses the dimension-independent Mata bound. See help jwselect for the route codes."
+                matlist e(wbic_bb_grid_diagnostics), format(%12.5g)
+                local copyfrom `copyfrom' wbic_bb_grid_diagnostics
+                local copyto `copyto' wbic_bb_grid_diagnostics
+            }
+            di as txt "WBIC calibration: `e(wbicmethod)'"
+            if "`e(wbicmethod)'"=="mc" {
+                di as txt "Mode: `e(mcmode)'; certified=1 means a continuum certificate or exact no-restriction normal inference."
+                di as txt "Status: 0 calibrated; 1 skipped; 2 normal; 5/6 protected BB fallback."
+                di as txt "rule_fallback=1 means the baseline-containing safeguard of the calibrated rule."
+                matlist e(mc_diagnostics), format(%12.5g)
+                local copyfrom `copyfrom' mc_diagnostics
+                local copyto `copyto' mc_diagnostics
+                local matrices : e(matrices)
+                if strpos(" `matrices' ", " mc_profile_diagnostics ") {
+                    di as txt "Conditional-score calibration. Inspect pstar, risk_upper and risk_target for each requested output."
+                    matlist e(mc_profile_diagnostics), format(%12.5g)
+                    local copyfrom `copyfrom' mc_profile_diagnostics
+                    local copyto `copyto' mc_profile_diagnostics
+                }
+                if strpos(" `matrices' ", " mc_calibration ") {
+                    local copyfrom `copyfrom' mc_calibration
+                    local copyto `copyto' mc_calibration
+                }
+                if strpos(" `matrices' ", " bb_diagnostics ") {
+                    di as txt "Fallback BB bracket: accuracy_certified=0 means its requested precision was not reached."
+                    matlist e(bb_diagnostics), format(%12.5g)
+                    local copyfrom `copyfrom' bb_diagnostics
+                    local copyto `copyto' bb_diagnostics
+                }
+            }
+            else if "`e(wbicmethod)'"=="bootstrap" {
+                di as txt "Centered reselection bootstrap-t: signed quantiles are in standard-error units."
+                di as txt "Gaussian draws: `e(wbicengine)' engine. CIs are equal-tailed."
+                di as txt "Adjustment is the observed selected estimate minus its baseline estimate."
+                di as txt "Status: 0 computed, 2 exact normal with no restrictions, 9 skipped."
+                matlist e(wbic_pointwise_diagnostics), format(%12.5g)
+                local copyfrom `copyfrom' wbic_pointwise_diagnostics
+                local copyto `copyto' wbic_pointwise_diagnostics
+            }
+            di as txt "CIs are marginal, not simultaneous; estimated inputs require asymptotic conditions."
+            di as txt "e(V) and se_fixed are fixed-selection diagnostics, not adjusted inference."
         }
     }
     else if "`subcmd'" == "cells" {

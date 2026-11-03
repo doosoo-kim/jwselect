@@ -1,4 +1,4 @@
-*! jwselect 0.7.0 30oct2026: complete nonlinear conditional-index blocks
+*! jwselect 0.8.8 03nov2026: complete nonlinear conditional-index blocks
 program define _jwselect_index, rclass
     version 15.1
     syntax [, VCE(string)]

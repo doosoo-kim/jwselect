@@ -1,4 +1,4 @@
-*! jwselect predict guard 0.7.0 23oct2026
+*! jwselect predict guard 0.8.8 03nov2026
 program define jwselect_p
     version 16.1
     if "`e(cmd)'" == "jwselect_sa" {

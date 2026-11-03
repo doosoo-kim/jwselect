@@ -1,6 +1,7 @@
 v 3
-d jwselect 0.7.0: preperiod selection after jwdid, csdid, or Sun-Abraham
-d 30oct2026. Full conditional-index nonlinear blocks; optional csdid/jwdid/SA adapters.
+d jwselect 0.8.8: preperiod selection after jwdid, csdid, or Sun-Abraham
+d Distribution-Date: 20261103
+d Manual, Wald-BIC, and focused selection for cohort and aggregate effects.
 f jwselect.ado
 f _jwselect_index.ado
 f _jwselect_jwdid.ado
@@ -20,3 +21,5 @@ f jwselect_worker.ado
 f jwselect_collect.ado
 f jwselect_worker.sthlp
 f jwselect_collect.sthlp
+f _jwselect_grid_call.ado
+F _jwselect_bb_w64.plugin

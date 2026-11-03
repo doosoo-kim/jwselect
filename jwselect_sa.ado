@@ -1,4 +1,4 @@
-*! jwselect 0.7.0 30oct2026: validated Sun-Abraham fitting wrapper
+*! jwselect 0.8.8 03nov2026: validated Sun-Abraham fitting wrapper
 program define jwselect_sa, eclass
     version 16.1
     if replay() {
@@ -238,7 +238,7 @@ program define _jwselect_sa_fit, eclass
     }
     matrix `B'=`B0'*`L''
     matrix `V'=`L'*`V0'*`L''
-    // Independent cell-mean and iid-panel influence check (v46_12, SA IF).
+    // Independent cell-mean and iid-panel influence check.
     // e(sa_Vif) has no regression degrees-of-freedom correction; the adapter
     // uses e(sa_Vgt), retaining the supplied reghdfe covariance convention.
     quietly sort `ivar' `tvar'
@@ -325,7 +325,7 @@ program define _jwselect_sa_fit, eclass
     ereturn local sa_contract "0.6.0-sa1"
     ereturn local sa_weight_scope "fixed"
     ereturn local cmd "jwselect_sa"
-    ereturn local version "0.7.0"
+    ereturn local version "0.8.8"
     // Empty e(predict)/e(estat_cmd) would invoke Stata's generic defaults on
     // regression columns whose generated variables no longer exist.
     ereturn local predict "jwselect_p"

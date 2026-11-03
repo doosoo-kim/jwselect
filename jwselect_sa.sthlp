@@ -1,5 +1,5 @@
 {smcl}
-{* *! jwselect 0.7.0 30oct2026}{...}
+{* *! jwselect 0.8.8 03nov2026}{...}
 {title:jwselect_sa -- Fit validated Sun-Abraham inputs for jwselect}
 
 {title:Syntax}
@@ -25,8 +25,7 @@ Use the estimation {cmd:if}/{cmd:in} sample to define a balanced analysis panel.
 Each treatment cohort and the never-treated group require at least two units.
 
 {p 4 4 2}
-This is the unbinned, no-covariate, never-treated specification proved in
-draft v46_12, Appendix {it:Sun-Abraham} and its implementation subsection.
+The wrapper fits an unbinned design with never-treated controls and no covariates.
 Covariates, weights, bins, extra omitted leads, last-treated controls, repeated
 cross sections, and higher-level or multiway clusters are outside this wrapper.
 The treatment is assumed binary and absorbing; {cmd:gvar()} records its first
@@ -38,7 +37,7 @@ Install {cmd:eventstudyinteract}, {cmd:avar}, {cmd:reghdfe}, and {cmd:ftools}
 separately. See {browse "https://github.com/lsun20/EventStudyInteract":the author's repository}.
 The compatibility target is author source version 0.1, 24 January 2022.
 The wrapper never installs or updates dependencies. Other jwselect workflows
-do not require them. See the package README for installation commands.
+do not require them. See the upstream repository for installation commands.
 
 {title:Workflow}
 {p 8 12 2}{cmd:jwselect_sa y, ivar(id) tvar(year) gvar(first_treat)}
@@ -79,9 +78,8 @@ aggregated {cmd:e(V_iw)}.
 The reported jwselect targets use fixed equal-cohort, equal-cell, or custom
 cell weights. They are not automatically the native population IW target.
 Using estimated cohort shares in {cmd:aggweights()} treats those numbers as
-fixed and does NOT add their sampling uncertainty. Draft v46_12 equation
-(sa_if) supplies an additional share-influence term for population IW;
-that target is not implemented in this release. Native IW matrices retained
+fixed. The reported covariance excludes the additional sampling variation
+from estimating population cohort shares. Native IW matrices retained
 from the source are diagnostics, not inputs to jwselect's selector.
 
 {title:Saved results}

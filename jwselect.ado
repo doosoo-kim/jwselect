@@ -1,4 +1,4 @@
-*! jwselect 0.7.0 30oct2026
+*! jwselect 0.8.8 03nov2026
 program define jwselect, eclass
     version 16.1
     if "`e(cmd)'" == "jwselect" {
@@ -37,8 +37,12 @@ program define _jwselect_work, eclass
         PREMatrix(name) CANDMatrix(name) JOINTMatrix(name) ///
         POSTWindow(numlist integer min=2 max=2) ///
         AGGregate(string) AGGWeights(name) VCE(string) RESTRictions(string) ///
-        INFERence(string) Level(cilevel) GAMma(real .01) ///
-        MCErr(real .001) REPS(integer 19999) SEED(integer 12345) ///
+        INFERence(string) WBICMethod(string) MCMOde(string) MCFallback(string) ///
+        WBICSolver(string) WBICEngine(string) ISReps(numlist integer max=1 >=100) ///
+        BBCells(numlist integer max=1 >=1 <=65536) BBTol(numlist max=1 >0) MCBeta(numlist max=1 >0 <1) ///
+        MCValidate(numlist integer max=1 >=100) MCSteps(numlist integer max=1 >=2) ///
+        MCCells(numlist integer max=1 >=1) MCREFine MCRadius(numlist max=1 >=0) MCPMax(numlist max=1 >=0 <1) ///
+        Level(cilevel) GAMma(real .01) MCErr(real .001) REPS(integer 19999) SEED(integer 12345) ///
         OPTStarts(integer 4) OPTMaxeval(integer 400) OPTTol(real .02) ///
         OPTReps(integer 1999) INFEROutputs(numlist integer) ///
         PREPare(string) CACHEMB(real 64) PROGRESS ///
@@ -54,7 +58,7 @@ program define _jwselect_work, eclass
     if "`candidates'" == "" local candidates nested
     if "`aggregate'" == "" local aggregate equalcohort
     if "`inference'" == "" local inference auto
-    foreach opt in baseline select wbicscope focus candidates aggregate vce inference restrictions {
+    foreach opt in baseline select wbicscope focus candidates aggregate vce inference restrictions wbicmethod mcmode mcfallback wbicsolver wbicengine {
         local `opt' = lower("``opt''")
     }
     if !inlist("`baseline'", "cohort", "common") error 198
@@ -71,18 +75,66 @@ program define _jwselect_work, eclass
         di as err "restrictions() must be index or placebo"
         exit 198
     }
-    if !inlist("`inference'", "auto", "reselect", "envelope", "none") error 198
+    if !inlist("`inference'", "auto", "reselect", "envelope", "wbic", "none") error 198
     if inlist("`inference'", "reselect", "envelope") & "`select'" != "focused" {
         di as err "inference(reselect or envelope) requires select(focused)"
         exit 198
     }
-    if `cachemb'<0 | missing(`cachemb') error 198
-    if "`inferoutputs'"!="" & "`select'"!="focused" {
-        di as err "inferoutputs() requires select(focused)"
+    if "`inference'" == "wbic" & "`select'" != "wbic" {
+        di as err "inference(wbic) requires select(wbic)"
         exit 198
     }
-    if "`inferoutputs'"!="" & !inlist("`inference'","none","auto","reselect") {
-        di as err "inferoutputs() supports inference(none, auto, or reselect)"
+    if "`inference'"=="wbic" & !inlist("`wbicmethod'", "bootstrap", "mc") {
+        di as err "inference(wbic) requires wbicmethod(bootstrap) or wbicmethod(mc)"
+        exit 198
+    }
+    if "`wbicmethod'"!="" & "`inference'"!="wbic" {
+        di as err "wbicmethod() requires inference(wbic)"
+        exit 198
+    }
+    local bootstrap = ("`wbicmethod'"=="bootstrap")
+    local mc = ("`wbicmethod'"=="mc")
+    if "`wbicengine'"!="" & (!`bootstrap' | !inlist("`wbicengine'","integrated","direct")) {
+        di as err "wbicengine(integrated or direct) requires wbicmethod(bootstrap)"
+        exit 198
+    }
+    if `bootstrap' & "`wbicengine'"=="" local wbicengine integrated
+    if "`mcmode'`wbicsolver'`mcfallback'`mcrefine'"!="" & !`mc' {
+        di as err "McCloskey controls require inference(wbic) wbicmethod(mc)"
+        exit 198
+    }
+    if !inlist("`mcmode'","","certified") | !inlist("`wbicsolver'","","grid") {
+        di as err "McCloskey inference uses mcmode(certified) and wbicsolver(grid)"
+        exit 198
+    }
+    if !inlist("`mcfallback'","","bb","error") {
+        di as err "mcfallback() must be bb or error"
+        exit 198
+    }
+    if `mc' & "`mcfallback'"=="" local mcfallback bb
+    local mccontrols isreps bbcells bbtol mcbeta mcvalidate mcsteps mccells mcradius mcpmax
+    local mcdefaults 8192   8192    .05   .4     9999       9       256     0        0
+    local i 0
+    foreach opt of local mccontrols {
+        local ++i
+        if "``opt''"!="" & !`mc' {
+            di as err "`opt'() requires inference(wbic) wbicmethod(mc)"
+            exit 198
+        }
+        if "``opt''"=="" local `opt' : word `i' of `mcdefaults'
+        if missing(``opt'') error 198
+    }
+    if `mccells'>cond("`mcrefine'"=="",65536,4000000) {
+        di as err "mccells() exceeds the budget for this McCloskey calculation"
+        exit 198
+    }
+    if `cachemb'<0 | missing(`cachemb') error 198
+    if "`inferoutputs'"!="" & "`select'"!="focused" & "`inference'"!="wbic" {
+        di as err "inferoutputs() requires select(focused) or inference(wbic)"
+        exit 198
+    }
+    if "`inferoutputs'"!="" & !inlist("`inference'","none","auto","reselect","wbic") {
+        di as err "inferoutputs() supports inference(none, auto, reselect, or wbic)"
         exit 198
     }
     if `"`prepare'"'!="" {
@@ -248,7 +300,7 @@ program define _jwselect_work, eclass
     // Check the entry point as well as the completion/version marker.
     capture mata: assert(findexternal("jw_stata()") != NULL)
     local entryrc = _rc
-    capture mata: assert(jw_version() == "0.7.0-index1")
+    capture mata: assert(jw_version() == "0.8.8")
     local versionrc = _rc
     if `entryrc' | `versionrc' {
         capture mata: assert(findexternal("jw_version()") != NULL)
@@ -270,7 +322,7 @@ program define _jwselect_work, eclass
         }
         capture mata: assert(findexternal("jw_stata()") != NULL)
         local entryrc = _rc
-        capture mata: assert(jw_version() == "0.7.0-index1")
+        capture mata: assert(jw_version() == "0.8.8")
         local versionrc = _rc
         if `entryrc' | `versionrc' {
             di as err "The Mata loader ended without defining the complete jwselect module"
@@ -281,11 +333,15 @@ program define _jwselect_work, eclass
     }
     tempname outb outV outtable outmap outselection outbases outpost outh ///
         outbcells outVcells outcellsel outweights outscores outfamily outjoint ///
-        outz outzV outA outT outdiagnostics outextrema outblockmap
+        outz outzV outA outT outdiagnostics outextrema outblockmap outmcdiag outmccal outbbdiag
     if "`select'" == "focused" & ("`inference'" != "none" | `"`prepare'"'!="") quietly set seed `seed'
+    if "`inference'" == "wbic" quietly set seed `seed'
     if "`select'" == "focused" & inlist("`inference'", "auto", "reselect") {
         di as txt "Computing focused reselection inference (numerical search and independent simulation)..."
     }
+    if `bootstrap' di as txt "Computing centered WBIC bootstrap interval (`wbicengine', `reps' draws)..."
+    if `mc' di as txt "Computing certified McCloskey intervals from the conditional score..."
+    tempname outpwdiag outgrid outprofile
     mata: jw_stata()
     if `"`prepare'"'!="" {
         _jwselect_jobguard, directory(`"`prepare'"') action(finalize)
@@ -328,6 +384,33 @@ program define _jwselect_work, eclass
         ereturn matrix inference_diagnostics = `outdiagnostics'
         capture confirm matrix `outextrema'
         if !_rc ereturn matrix inference_extrema = `outextrema'
+    }
+    if `bootstrap' {
+        ereturn local wbicmethod bootstrap
+        ereturn matrix wbic_pointwise_diagnostics = `outpwdiag'
+        ereturn local wbicengine `wbicengine'
+        ereturn local inference_bound centered_reselection_t
+    }
+    if `mc' {
+        ereturn local wbicmethod mc
+        ereturn local wbicsolver grid
+        ereturn local mcmode certified
+        ereturn local mcfallback `mcfallback'
+        ereturn local inference_bound mc_certified_calibration
+        ereturn matrix mc_diagnostics = `outmcdiag'
+        ereturn matrix mc_profile_diagnostics = `outprofile'
+        capture confirm matrix `outmccal'
+        if !_rc ereturn matrix mc_calibration = `outmccal'
+        capture confirm matrix `outbbdiag'
+        if !_rc ereturn matrix bb_diagnostics = `outbbdiag'
+        capture confirm matrix `outgrid'
+        if !_rc ereturn matrix wbic_bb_grid_diagnostics = `outgrid'
+        ereturn scalar mc_domain_radius = `_mc_domain_radius'
+        ereturn scalar mc_exterior_radius = `_mc_exterior_radius'
+        ereturn scalar mcrefine = ("`mcrefine'"!="")
+        foreach control of local mccontrols {
+            ereturn scalar `control' = ``control''
+        }
     }
     ereturn scalar N_units = `nunits'
     ereturn scalar N_observations = `N_obs'
@@ -402,8 +485,8 @@ program define _jwselect_work, eclass
     ereturn local cmdline `"jwselect `0'"'
     ereturn local estat_cmd jwselect_estat
     ereturn local predict jwselect_p
-    ereturn local version 0.7.0
-    ereturn local build 0.7.0-index1
+    ereturn local version 0.8.8
+    ereturn local build 0.8.8
     ereturn local cmd jwselect
     _jwselect_display, `nocohort' `celleffects'
 end

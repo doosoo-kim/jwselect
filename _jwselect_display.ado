@@ -1,4 +1,4 @@
-*! jwselect display 0.7.0 23oct2026
+*! jwselect display 0.8.8 03nov2026
 program define _jwselect_display
     version 16.1
     syntax [, NOCohort CELLEffects]
@@ -33,6 +33,9 @@ program define _jwselect_display
     if "`e(inference)'" == "fixed_restrictions" local inf "Normal; fixed restrictions"
     if "`e(inference)'" == "envelope" local inf "Conservative Gaussian envelope"
     if "`e(inference)'" == "reselect" local inf "Two-step numerical reselection"
+    if "`e(inference)'" == "wbic" local inf "Selection-adjusted WBIC (`e(wbicmethod)' bound)"
+    if "`e(wbicmethod)'" == "mc" local inf "McCloskey size calibration"
+    if "`e(wbicmethod)'" == "bootstrap" local inf "Centered WBIC bootstrap-t (`e(wbicengine)')"
     if "`e(inference)'" == "none" local inf "CIs and p-values disabled"
     di as txt _n "Research design and method"
     di as txt "{hline 38}{c TT}{hline 39}"
@@ -123,6 +126,21 @@ program define _jwselect_display
             }
             if `exhausted' > 0 di as txt "Search budget exhausted for `exhausted' objectives; inspect estat inference."
         }
+    }
+    else if "`e(inference)'" == "wbic" {
+        if "`e(wbicmethod)'"=="mc" {
+            tempname mcfallbacks
+            mata: st_numscalar("`mcfallbacks'",sum((st_matrix("e(mc_diagnostics)")[,14]:==5):|(st_matrix("e(mc_diagnostics)")[,14]:==6)))
+            if scalar(`mcfallbacks')>0 {
+                di as txt "Protected Berger-Boos fallback used for " scalar(`mcfallbacks') " output(s)."
+                di as txt "Inspect the fallback bracket and accuracy flag with estat inference."
+            }
+            di as txt "McCloskey calibration reports CIs; calibrated p-values are not supplied."
+        }
+        else if "`e(wbicmethod)'"=="bootstrap" di as txt "Studentized reselection about the observed WBIC estimate. Coverage justification is pointwise."
+        di as txt "Reported SEs and e(V) are fixed-selection diagnostics. Use e(ci) for interval inference."
+        di as txt "Intervals are marginal. Gaussian approximation and regularity conditions apply."
+        di as txt "See estat inference for method-specific diagnostics."
     }
     else if "`e(selection_method)'" == "wbic" & "`e(inference)'" != "none" ///
         di as txt "Normal inference uses the pointwise oracle approximation after Wald-BIC."

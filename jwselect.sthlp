@@ -1,10 +1,9 @@
 {smcl}
-{* *! jwselect 0.7.0 30oct2026}{...}
+{* *! jwselect 0.8.8 03nov2026}{...}
 {title:jwselect -- Select preperiod restrictions after csdid, jwdid, or Sun-Abraham}
 
 {p 4 4 2}
-Main command for Stata 16.1 or later; the prepared-workflow commands
-and release tests require Stata 17.
+The main command requires Stata 16.1 or later. Prepared workers and collection require Stata 17 or later.
 
 {title:Syntax}
 
@@ -19,8 +18,12 @@ and release tests require Stata 17.
 {opt aggregate(equalcohort|equalcell)} {opt aggweights(name)}
 {opt vce(unconditional|conditional|supplied)}
 {opt restrictions(index|placebo)}
-{opt level(#)} {opt inference(auto|reselect|envelope|none)}
+{opt level(#)} {opt inference(auto|wbic|reselect|envelope|none)}
 {opt gamma(#)} {opt mcerr(#)} {opt reps(#)} {opt seed(#)}
+{opt wbicmethod(bootstrap|mc)} {opt wbicengine(integrated|direct)}
+{opt mcfallback(bb|error)} {opt mcbeta(#)} {opt mcsteps(#)} {opt mcrefine}
+{opt mccells(#)} {opt mcvalidate(#)} {opt mcradius(#)} {opt mcpmax(#)}
+{opt bbcells(#)} {opt bbtol(#)} {opt isreps(#)}
 {opt optstarts(#)} {opt optmaxeval(#)} {opt opttol(#)} {opt optreps(#)}
 {opt inferoutputs(numlist)} {opt prepare(directory)} {opt cachemb(#)} {opt progress}
 {opt maxcand(#)} {opt maxjoint(#)} {opt nocohort} {opt celleffects}]
@@ -97,7 +100,7 @@ and the RNG state are restored. The RNG state is also restored on success.
 {p 4 4 2}
 Fit {cmd:jwselect_sa y, ivar(id) tvar(time) gvar(first_treat)} before calling
 {cmd:jwselect}. The wrapper uses optional {cmd:eventstudyinteract} and validates
-the unbinned, no-covariate, never-treated design proved in draft v46_12.
+an unbinned design with never-treated controls and no covariates.
 It generates all observed event indicators and omits only event -1. Keep a
 stored source fit and restore it before each selection specification.
 See {help jwselect_sa} for installation, supported data, and saved results.
@@ -114,9 +117,8 @@ cohort-share uncertainty is not implemented. Importing raw, unverified
 {p 4 4 2}
 Install {cmd:csdid} separately using {browse "https://psantanna.com/csdid/":the authors' installation guide}.
 The adapter targets the 2.0.1 API and requires version 2.0.1 or later in the 2.x
-line; older SSC 1.x releases are rejected. The pinned 2.0.1 source commit is
-{cmd:f98bcea0691b1670c409bb7e3cc81d60705b4f84}; the README gives its installation
-command. Record {cmd:csdid version} for reproducibility. No dependency is installed by
+line; older SSC 1.x releases are rejected. The tested 2.0.1 source commit is
+{cmd:f98bcea0691b1670c409bb7e3cc81d60705b4f84}. Record {cmd:csdid version} for reproducibility. No dependency is installed by
 {cmd:jwselect}; the matrix interface needs no upstream estimator.
 
 {p 4 4 2}
@@ -188,7 +190,7 @@ CS-DR re-estimation at alternative base periods.
 {p 4 4 2}
 With covariate interactions, zero average nonlinear placebo effects can be
 weaker than setting every index-pretrend coefficient to zero. The index route
-implements the v48_3 full-block target-level MD construction; the separate
+uses the full coefficient block for target-level MD; the separate
 coefficient-MD projection followed by nonlinear prediction is not implemented. Identification,
 joint asymptotic normality and consistent covariance are required. CS-DR
 robustness conditions apply to the baseline and each placebo moment used;
@@ -223,7 +225,7 @@ Joint WBIC can select different restrictions than cohort-wise WBIC.
 
 {p 4 4 2}
 {cmd:select(focused)} minimizes FMSC = v0 - 2*gain + adjustment^2 in the
-sampling-covariance scale. This is the draft's asymptotic-covariance score
+sampling-covariance scale. This equals the asymptotic-covariance score
 divided by N; it gives the same minimizer. The squared bias correction is
 untruncated. Exact focused-score ties favor fewer restrictions, then the first stored candidate among equal sizes. Generated and custom
 local families put baseline-only first; a supplied jointmatrix() retains its
@@ -329,15 +331,41 @@ Estimated population-share weights require extra influence-function terms and
 are not implemented; the command treats supplied weights as fixed. Signed
 contrasts are outside this initial averaging interface.
 
-{title:Inference}
+{title:Confidence intervals}
 
 {p 4 4 2}
-Manual selection reports normal inference under the fixed maintained
-restrictions. Wald-BIC reports pointwise oracle normal inference; this is not
-uniform inference under local misspecification.
+Manual selection reports normal intervals under the fixed restrictions.
+By default, Wald-BIC reports an ordinary pointwise normal interval using the selected
+model. To request a marginal selection-adjusted interval, specify
+{cmd:inference(wbic)} and explicitly choose one of the following methods.
+Both retain the ordinary WBIC point estimate. Use {cmd:estat inference}
+to inspect the intervals and method-specific diagnostics.
 
 {p 4 4 2}
-For focused selection, {cmd:inference(auto)} now resolves to
+{cmd:wbicmethod(bootstrap)} reselects preperiods in the fitted Gaussian experiment
+and uses a centered, studentized error statistic. This is a pointwise refinement.
+{cmd:wbicengine(integrated)} is the default; {cmd:wbicengine(direct)} uses direct
+Gaussian simulation. {cmd:reps()} and {cmd:seed()} set the simulation budget and seed.
+
+{p 4 4 2}
+{cmd:wbicmethod(mc)} uses the smallest candidate probability level that passes the
+McCloskey rejection-risk bound in the fitted Gaussian experiment.
+{cmd:mcsteps(9)} sets the number of candidate levels. {cmd:mcrefine} optionally
+searches for a lower certifiable level. If no level passes, {cmd:mcfallback(bb)}
+returns a separately protected Berger-Boos interval and identifies it as a fallback.
+{cmd:mcfallback(error)} stops the command instead. For a fallback, distinguish
+the protected upper bound from attainment of the {cmd:bbtol()} tolerance.
+
+{p 4 4 2}
+Read the reported endpoints from {cmd:e(ci)} or {cmd:e(table)}. The adjusted
+methods report no adjusted p-values. Displayed standard errors and {cmd:e(V)}
+describe the fixed-selection fit. {cmd:inferoutputs()} limits adjusted inference
+to specified rows of {cmd:e(output_map)}.
+
+{title:Focused inference}
+
+{p 4 4 2}
+For focused selection, {cmd:inference(auto)} uses
 {cmd:inference(reselect)}. At every trial nuisance value, common joint Gaussian
 draws rerun the actual focused candidate rule. The selected estimation error
 includes the nuisance mean. Selection and reporting targets are distinguished:
@@ -402,8 +430,9 @@ selection distribution. Observation-level {cmd:predict} is deliberately undefine
 
 {p 4 4 2}
 {cmd:inferoutputs(numlist)} identifies output ROW NUMBERS in e(output_map),
-not cohort dates or event times. It requires focused selection with
-{cmd:inference(none)}, {cmd:auto}, or {cmd:reselect}. Without it, inference is
+not cohort dates or event times. It supports focused selection with
+{cmd:inference(none)}, {cmd:auto}, or {cmd:reselect}, and WBIC selection with
+{cmd:inference(wbic)}. Without it, inference is
 requested for every output. Unrequested outputs retain point estimates and
 fixed-selection covariance but have missing intervals and p-values. Use this
 option to avoid an unused aggregate's numerical inference. {cmd:nocohort}
@@ -476,6 +505,10 @@ e(cell_selection), e(b_cells), e(V_cells), e(weights), e(scores),
 e(candidates), e(joint_candidates), e(z), e(V_z), e(loading), e(targets).
 Numerical reselection also stores e(inference_diagnostics) and
 e(inference_extrema).
+The centered bootstrap stores {cmd:e(wbicengine)} and {cmd:e(wbic_pointwise_diagnostics)}.
+McCloskey stores {cmd:e(mc_diagnostics)}, {cmd:e(mc_profile_diagnostics)} and,
+when calibration is attempted, {cmd:e(mc_calibration)}. A protected fallback
+also populates {cmd:e(bb_diagnostics)}.
 If K=0, hmap/selection/cell_selection/joint_candidates are absent.
 e(joint_candidates) is present for joint WBIC and aggregate-focused searches
 with K>0.
@@ -511,6 +544,10 @@ The source estimator is matrix, csdid, jwdid, or eventstudyinteract. e(source_ve
 when the source does not expose a verified version, including jwdid; retain
 {cmd:which jwdid} output separately. e(version) and e(build) identify the
 installed release.
+
+{p 4 4 2}
+{cmd:e(wbicmethod)} records the adjusted method. For McCloskey, inspect
+the calibration and fallback flags by output with {cmd:estat inference}.
 
 {p 4 4 2}
 For each output, e(inference_diagnostics) has four rows, one per
@@ -560,16 +597,22 @@ With no eligible leads, index matrices are absent and both counts are zero.
 
 {p 4 4 2}
 For an exponential conditional mean use {cmd:method(poisson)} in the source fit.
-Self-contained examples are {cmd:examples/csdid_demo.do} and
-{cmd:examples/nonlinear_demo.do}. Restore the stored source fit before each
+Restore the stored source fit before each
 new direct specification. The following example retains the linear workflow.
 
 
 {phang2}{cmd:jwdid y x1 x2, ivar(id) tvar(year) gvar(first_treat) never method(regress)}
 {phang2}{cmd:estimates store original}
 {phang2}{cmd:jwselect, select(wbic) wbicscope(joint) candidates(nested)}
-{phang2}{cmd:estat pretrend}
-{phang2}{cmd:estat pretrend, selected}
+
+{p 4 4 2}
+Restore the original source fit before each comparison.
+{phang2}{cmd:estimates restore original}
+{phang2}{cmd:jwselect, inference(wbic) wbicmethod(bootstrap) reps(19999) seed(12345)}
+{phang2}{cmd:estat inference}
+{phang2}{cmd:estimates restore original}
+{phang2}{cmd:jwselect, inference(wbic) wbicmethod(mc)}
+{phang2}{cmd:estat inference}
 {phang2}{cmd:estimates restore original}
 {phang2}{cmd:jwselect, select(focused) focus(both) postwindow(0 2)}
 {phang2}{cmd:estat selection}
@@ -586,13 +629,5 @@ construction while leaving point estimates unchanged. Large all-subsets
 families can make these checks expensive.
 
 {p 4 4 2}
-For reproducible matrix-input examples, see {cmd:examples/matrix_demo.do}
-and {cmd:examples/joint_demo.do}. Both examples are self-contained.
-
-{p 4 4 2}
-Developer tests are supplied separately in the full source archive, not this
-clean distribution. From that source archive, the joint public-command test is
-{cmd:do tests/joint040_smoke.do}, also included in the release driver.
-Run {cmd:do run_release_tests.do} from the package directory in a fresh Stata 17
-session. The test clears data and estimates; save your work first.
-Require the final release PASS. No test installs or updates packages automatically.
+A self-contained matrix-input example is in {cmd:examples/matrix_demo.do}
+in the downloaded package.

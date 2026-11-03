@@ -1,5 +1,5 @@
 {smcl}
-{* *! jwselect 0.4.0 23oct2026}{...}
+{* *! jwselect 0.8.8 03nov2026}{...}
 {title:jwselect_worker -- Run prepared focused-inference search jobs}
 
 {p 4 4 2}
@@ -129,16 +129,6 @@ returned by {help jwselect_collect}.
 Zero means cleanup observed every owned lock absent; a positive value reports
 cleanup failure after successful search computations, not numerical failure.
 If a search itself fails, its original return code is preserved through cleanup.
-
-{title:Validation}
-
-{p 4 4 2}
-Developer validation scripts are supplied in the full source archive.
-They are not included in this clean distribution. From the source archive,
-run {cmd:do run_release_tests.do} in a fresh Stata 17
-session. The test clears data and estimates; save your work first.
-Source and independent numerical checks do not substitute for executing
-the Stata tests.
 
 {title:Also see}
 

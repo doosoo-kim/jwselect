@@ -1,4 +1,4 @@
-*! jwselect 0.7.0 30oct2026: read-only Sun-Abraham adapter
+*! jwselect 0.8.8 03nov2026: read-only Sun-Abraham adapter
 program define _jwselect_sa, rclass
     version 16.1
     syntax [, VCE(string)]
