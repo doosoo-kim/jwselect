@@ -1,10 +1,12 @@
-*! jwselect display 0.8.8 03nov2026
+*! jwselect display 0.9.0 04nov2026
 program define _jwselect_display
     version 16.1
     syntax [, NOCohort CELLEffects]
     if "`e(cmd)'" != "jwselect" error 301
     di as txt _n "jwselect: preperiod selection and covariance-weighted moment adjustment"
-    local source `e(source_estimator)'
+    local scalarinput = (e(scalar_target)==1)
+    if `scalarinput' di as txt "Population target: " as res `"`e(target_label)'"'
+    local source `e(source_estimator)' 
     if "`source'" == "" local source jwdid
     local base "Cohort-specific (g-1)"
     if "`e(baseline)'" == "common" local base "Common (q-1)"
@@ -17,6 +19,7 @@ program define _jwselect_display
         local base "Cohort-specific: g-gap*(1+delta)"
         if "`e(baseline)'" == "common" local base "Common: q-gap*(1+delta)"
     }
+    if `scalarinput' local base "Fixed by source; see baselines below"
     local selection "Cohort-wise Wald-BIC"
     if "`e(selection_method)'" == "wbic" & "`e(wbic_scope)'" == "joint" local selection "Joint Wald-BIC across cohorts"
     if "`e(selection_method)'" == "manual" local selection "Manually specified preperiods"
@@ -29,6 +32,7 @@ program define _jwselect_display
     local agg "Uniform weights across cohorts"
     if "`e(aggregate)'" == "equalcell" local agg "Uniform weights across post cells"
     if "`e(aggregate)'" == "custom" local agg "User-specified fixed cell weights"
+    if `scalarinput' local agg "Population target fixed in source fit"
     local inf "Pointwise oracle normal inference"
     if "`e(inference)'" == "fixed_restrictions" local inf "Normal; fixed restrictions"
     if "`e(inference)'" == "envelope" local inf "Conservative Gaussian envelope"
@@ -45,7 +49,8 @@ program define _jwselect_display
     if !missing(e(N_clusters)) di as txt "Clusters" _col(39) "{c |} " as res %9.0g e(N_clusters)
     di as txt "Treatment cohorts" _col(39) "{c |} " as res %9.0g e(G)
     if !missing(e(N_covariates)) di as txt "Covariates" _col(39) "{c |} " as res %9.0g e(N_covariates)
-    di as txt "Target post-treatment cells" _col(39) "{c |} " as res %9.0g e(P)
+    if `scalarinput' di as txt "Population targets" _col(39) "{c |} " as res %9.0g e(P)
+    else di as txt "Target post-treatment cells" _col(39) "{c |} " as res %9.0g e(P)
     if "`e(restriction_scale)'" == "conditional_index" {
         di as txt "Eligible preperiod blocks" _col(39) "{c |} " as res %9.0g e(K_blocks)
         di as txt "Index-coefficient restrictions" _col(39) "{c |} " as res %9.0g e(K)
@@ -68,10 +73,12 @@ program define _jwselect_display
     di as txt "Inference" _col(39) "{c |} " as res "`inf'"
     local window "All available post-treatment periods"
     if "`e(postwindow)'" != "" local window "Event times `e(postwindow)' (inclusive)"
+    if `scalarinput' local window "Fixed by source target definition"
     di as txt "Post-treatment window" _col(39) "{c |} " as res "`window'"
     di as txt "{hline 38}{c BT}{hline 39}"
     di as txt "Preperiod counts are cohort-period pairs, excluding maintained baselines."
-    di as txt "Each cohort effect averages its included post-treatment cells equally."
+    if !`scalarinput' di as txt "Each cohort effect averages its included post-treatment cells equally."
+    else di as txt "All candidate restrictions use the same prespecified population target and its full covariance."
     if "`e(restriction_scale)'" == "outcome_placebo" {
         di as txt "Optional restrictions set average outcome-scale placebo effects to zero."
         di as txt "J equals Wald for this moment-adjustment criterion; no upstream model is refitted."
@@ -93,7 +100,7 @@ program define _jwselect_display
         else di as txt "Inference below is copied from `source'; it precedes preperiod selection."
         if "`e(upstream_vce)'" == "conditional" {
             di as txt "This source comparison table uses conditional margins SEs."
-            di as txt "The adjusted results below use vce(`e(covariance)') and the full ATT-index covariance."
+            di as txt "The adjusted results below use vce(`e(covariance)') and the full joint covariance."
         }
         local statlabel "`e(upstream_stat)'"
         if !inlist("`statlabel'", "t", "z") local statlabel "b/se"
@@ -129,11 +136,11 @@ program define _jwselect_display
     }
     else if "`e(inference)'" == "wbic" {
         if "`e(wbicmethod)'"=="mc" {
-            tempname mcfallbacks
-            mata: st_numscalar("`mcfallbacks'",sum((st_matrix("e(mc_diagnostics)")[,14]:==5):|(st_matrix("e(mc_diagnostics)")[,14]:==6)))
-            if scalar(`mcfallbacks')>0 {
-                di as txt "Protected Berger-Boos fallback used for " scalar(`mcfallbacks') " output(s)."
-                di as txt "Inspect the fallback bracket and accuracy flag with estat inference."
+            tempname mcterminals
+            mata: st_numscalar("`mcterminals'",sum(st_matrix("e(mc_diagnostics)")[,14]:==7))
+            if scalar(`mcterminals')>0 {
+                di as txt "Analytic McCloskey terminal used for " scalar(`mcterminals') " output(s)."
+                di as txt "Inspect the terminal normal score and width with estat inference."
             }
             di as txt "McCloskey calibration reports CIs; calibrated p-values are not supplied."
         }
@@ -147,8 +154,16 @@ program define _jwselect_display
     else if "`e(inference)'" == "none" di as txt "Confidence intervals and p-values were disabled."
     tempname shown
     matrix `shown' = e(table)
-    if "`nocohort'" != "" matrix `shown' = `shown'[`=e(G)+1'...,1...]
+    if "`nocohort'" != "" & !`scalarinput' matrix `shown' = `shown'[`=e(G)+1'...,1...]
     matlist `shown', format(%11.5g) rowtitle(Target)
+    if "`e(wbicmethod)'"=="mc" {
+        forvalues i=1/`=rowsof(e(mc_diagnostics))' {
+            if el(e(mc_diagnostics),`i',14)==8 {
+                if "`nocohort'"=="" | `i'>e(G) ///
+                    di as txt "Target row `i': CI [-inf,+inf] (whole real line; arithmetic or regularity exception)."
+            }
+        }
+    }
     di as txt _n "Cohort baselines and selected over-identifying preperiods:"
     _jwselect_periods
     if "`e(selection_method)'" == "focused" & "`e(focus)'" == "both" {
@@ -172,6 +187,7 @@ program define _jwselect_periods
         local cohort = `base'[`g',1]
         local baseperiod = `base'[`g',2]
         local row `g'
+        if e(scalar_target)==1 local row 1
         if "`aggregate'" != "" local row = colsof(e(b))
         local periods
         if e(K) > 0 {
@@ -192,6 +208,8 @@ program define _jwselect_periods
         di as txt "  The final joint MD fit uses the joint Wald-BIC selected restrictions."
     else if inlist("`e(selection_method)'", "manual", "wbic") ///
         di as txt "  The final joint MD fit uses the union of these cohort-specific restrictions."
-    if "`e(selection_method)'" == "focused" & "`e(focus)'" == "aggregate" ///
-        di as txt "  Cohort estimates use the jointly selected aggregate-focused restrictions."
+    if "`e(selection_method)'" == "focused" & "`e(focus)'" == "aggregate" {
+        if e(scalar_target)==1 di as txt "  The population estimate uses the jointly selected target-focused restrictions."
+        else di as txt "  Cohort estimates use the jointly selected aggregate-focused restrictions."
+    }
 end

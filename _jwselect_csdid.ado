@@ -1,4 +1,4 @@
-*! jwselect 0.8.8 03nov2026: read-only CS-DR adapter for csdid 2.0.1+
+*! jwselect 0.9.0 04nov2026: read-only CS-DR adapter for csdid 2.0.1+
 program define _jwselect_csdid, rclass
     version 16.1
     syntax [, VCE(string)]
@@ -100,6 +100,13 @@ program define _jwselect_csdid_work, rclass
     local ng = e(N_groups)
     local anti = e(anticipation)
     local trim = e(pscoretrim)
+    // The displayed DR theorem is for untrimmed normalized odds. A finite
+    // sample with zero dropped controls does not prove asymptotic inactivity.
+    if missing(`trim') | `trim' != 1 {
+        di as err "The theorem-backed CS-DR adapter requires pscoretrim(1)"
+        di as err "Refit csdid with trimming disabled; active or potentially active trimming is not supported"
+        exit 198
+    }
     local lev = e(level)
     if "`ivar'" == "" | "`tvar'" == "" | "`gvar'" == "" {
         di as err "csdid panel, time, and treatment-cohort metadata are required"

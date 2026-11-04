@@ -1,5 +1,5 @@
 {smcl}
-{* *! jwselect 0.8.8 03nov2026}{...}
+{* *! jwselect 0.9.0 04nov2026}{...}
 {title:jwselect -- Select preperiod restrictions after csdid, jwdid, or Sun-Abraham}
 
 {p 4 4 2}
@@ -21,9 +21,8 @@ The main command requires Stata 16.1 or later. Prepared workers and collection r
 {opt level(#)} {opt inference(auto|wbic|reselect|envelope|none)}
 {opt gamma(#)} {opt mcerr(#)} {opt reps(#)} {opt seed(#)}
 {opt wbicmethod(bootstrap|mc)} {opt wbicengine(integrated|direct)}
-{opt mcfallback(bb|error)} {opt mcbeta(#)} {opt mcsteps(#)} {opt mcrefine}
+{opt mcfallback(terminal|error)} {opt mcbeta(#)} {opt mcsteps(#)} {opt mcrefine}
 {opt mccells(#)} {opt mcvalidate(#)} {opt mcradius(#)} {opt mcpmax(#)}
-{opt bbcells(#)} {opt bbtol(#)} {opt isreps(#)}
 {opt optstarts(#)} {opt optmaxeval(#)} {opt opttol(#)} {opt optreps(#)}
 {opt inferoutputs(numlist)} {opt prepare(directory)} {opt cachemb(#)} {opt progress}
 {opt maxcand(#)} {opt maxjoint(#)} {opt nocohort} {opt celleffects}]
@@ -46,7 +45,10 @@ joint covariance, forms baseline treatment-effect contrasts and optional
 preperiod contrasts, selects restrictions, and performs minimum-distance (MD)
 adjustment. It stores complete joint fixed-selection covariance matrices.
 It reads unaggregated {cmd:csdid} results or joint {cmd:jwdid estat attgt}
-margins, or validated Sun-Abraham inputs from {help jwselect_sa}. Already aggregated {cmd:estat event} vectors are not supported.
+margins, or validated Sun-Abraham inputs from {help jwselect_sa}.
+The scalar sources {help jwselect_rcs} and {help jwselect_sa_iw} instead supply
+one prespecified population target, optional preperiod moments, and their
+complete joint covariance. Already aggregated {cmd:estat event} vectors are not supported.
 
 {p 4 4 2}
 The baseline is g-gap*(1+delta) with {cmd:baseline(cohort)} (default), or
@@ -64,6 +66,10 @@ mean over its included post-treatment cells. By default, all available cells
 are included, so cohorts may have different exposure horizons.
 {cmd:postwindow(0 2)}, for example, requires event times 0, 1, and 2 in EVERY
 cohort. Missing requested support causes an error rather than a changed target.
+These design options apply to ordinary cohort-time sources. After a scalar
+source, set the target, baseline, population and event window in that source
+command; {cmd:jwselect} cannot change them. Scalar sources report only one
+population estimate, and focused selection uses {cmd:focus(aggregate)}.
 
 {title:Direct linear jwdid support and covariance}
 
@@ -108,8 +114,14 @@ See {help jwselect_sa} for installation, supported data, and saved results.
 {p 4 4 2}
 The full unit-clustered regression covariance is used with {cmd:vce(supplied)}.
 Linear rebasing via {cmd:baseline(common)} or {cmd:anticipation()} is supported.
-All reporting weights remain fixed: population IW aggregation with estimated
-cohort-share uncertainty is not implemented. Importing raw, unverified
+This direct route uses fixed reporting weights. To include population
+cohort-share uncertainty, follow {cmd:jwselect_sa} with
+{cmd:jwselect_sa_iw, postwindow(a b)} and then run {cmd:jwselect}.
+That source forms one population IW target and the full joint covariance
+with its cohort-specific preperiod restrictions, including the influence
+of the estimated shares. Selection uses scalar target-level MD, rather than
+averaging separately selected cohort estimates. See {help jwselect_sa_iw}.
+Importing raw, unverified
 {cmd:eventstudyinteract} or {cmd:reghdfe} results is not supported.
 
 {title:Optional CS-DR adapter}
@@ -122,7 +134,7 @@ line; older SSC 1.x releases are rejected. The tested 2.0.1 source commit is
 {cmd:jwselect}; the matrix interface needs no upstream estimator.
 
 {p 4 4 2}
-Run {cmd:csdid} with {cmd:method(dr) nevertreated base_period(universal) analytical pointwise}.
+Run {cmd:csdid} with {cmd:method(dr) nevertreated base_period(universal) analytical pointwise pscoretrim(1)}.
 The supported sample is an unweighted balanced panel with positive integer,
 unit-spaced calendar time, actual never-treated controls coded zero, and plain
 numeric covariates constant within unit. Omit extra clustering or use
@@ -132,6 +144,14 @@ posting an aggregation. Bootstrap covariance, varying bases, not-yet-treated
 controls, and unsupported samples are rejected.
 
 {p 4 4 2}
+{cmd:pscoretrim(1)} is required. The upstream default {cmd:pscoretrim(.995)}
+is rejected even if no sample observations happen to be trimmed. Active
+trimming changes the untrimmed target and can invalidate the DR union used
+here. A retained or clipped propensity score is not a substitute for the
+overlap assumptions. The composition-changing repeated-cross-section route
+is supplied by {cmd:jwselect_rcs}, described below.
+
+{p 4 4 2}
 {cmd:vce(supplied)} is the only CS-DR covariance convention and is the default
 for that source. The adapter retains the full analytical influence-function
 covariance, including cross-cohort and cross-period terms. It reconstructs
@@ -139,23 +159,54 @@ structural-zero reference cells from the upstream cell metadata.
 {cmd:baseline(cohort)} is required; an omitted {cmd:anticipation()} is inferred
 from {cmd:csdid}'s value, and an explicit value must match it.
 
+{title:Doubly robust repeated cross sections}
+
+{p 4 4 2}
+Run {cmd:jwselect_rcs y x1 x2, tvar(time) gvar(first_treat) cohort(g) target(s) baseline(b)}
+before {cmd:jwselect}. The target is the ATT for cohort g's treated population
+observed at date s. Source-cell outcomes are transported to that target's
+covariate distribution, allowing the distributions of cohort and covariates
+to change over time. Each source cell uses an outcome regression and a
+normalized target-to-source density ratio; the DR union requires either its
+outcome regression or its ratio model to be correct. All target, nuisance
+and normalization contributions enter the joint influence covariance.
+
+{p 4 4 2}
+{cmd:sampling(pooled)} (default) treats observations as an independent pooled
+mixture. {cmd:sampling(stratified)} allows independent date-specific samples
+with fixed date sample sizes and centers the complete influence within each
+date. Both require representative independent samples, covariates unaffected
+by treatment, overlap and the maintained target-standardized average
+parallel-trends equality. Changing composition does not license arbitrary
+outcome-selective sampling. Overlapping panels, survey weights, trimming and
+extra clustering are unsupported. See {help jwselect_rcs} for source syntax,
+optional preperiods and detailed assumptions.
+
+{p 4 4 2}
+Changing composition makes the moments target-specific. Refit the source
+for a different target; separately fitted targets do not supply their
+cross-target covariance. The scalar source supports manual, WBIC and
+aggregate-focused selection, with the source's full sampling covariance.
+
 {title:Optional nonlinear jwdid adapter}
 
 {p 4 4 2}
 {cmd:method(logit)} and {cmd:method(poisson)} are supported under the balanced,
 unweighted, never-treated, unit-clustered and time-invariant-covariate contract
 above. Other nonlinear methods, including {cmd:ppmlhdfe}, are not supported.
-{cmd:restrictions(index)} selects the full lead coefficient block: the intercept
-and every covariate interaction at a cohort/date. The ATT remains on the outcome
-scale. Unit scores provide the full joint covariance between ATT and index
-coefficients, retaining shared nuisance and cross-cohort/date terms.
-{cmd:vce(unconditional)}, the default, adds empirical target-covariate-distribution
-uncertainty and its cross terms; {cmd:vce(conditional)} conditions on the observed
-covariates. Centered interactions and upstream {cmd:xasis} are supported; index
+Omitting {cmd:restrictions()} or specifying {cmd:restrictions(index)} uses
+the full conditional-index formulation. Under its correctly specified finite-dimensional conditional model
+and identifying restrictions, it selects the entire lead coefficient block:
+the intercept and every covariate interaction at a cohort/date. The ATT
+remains on the outcome scale. Unit scores provide the full joint covariance
+between ATT and index coefficients. {cmd:vce(unconditional)} includes
+empirical target-covariate-distribution uncertainty and its cross terms;
+{cmd:vce(conditional)} conditions on the observed covariates. Index
 coefficients are reported in the original covariate basis.
+Centered interactions and upstream {cmd:xasis} are supported.
 
 {p 4 4 2}
-Each complete date block is one selection unit. With q covariates it has q+1
+In index mode each complete date block is one selection unit. With q covariates it has q+1
 identified coefficients. Wald-BIC penalizes the restriction rank, not the number
 of selected dates. Generated candidate families enumerate dates; {cmd:prematrix()}
 selects complete blocks. Custom candidate masks have {cmd:e(K)} coefficient
@@ -163,10 +214,20 @@ columns in {cmd:e(hmap)} order and must assign the same bit to every component
 of a date. Split, unidentified, or singular blocks are rejected.
 
 {p 4 4 2}
-For backward compatibility, omitted {cmd:restrictions()} means
-{cmd:restrictions(placebo)}: joint {cmd:estat attgt} outcome-scale ATT and average
-placebo margins supply the existing inputs. The new option is only accepted
-after supported nonlinear jwdid logit or Poisson fits.
+Explicit {cmd:restrictions(placebo)} retains the legacy outcome-scale option:
+joint {cmd:estat attgt} margins supply the ATT and average fitted-placebo
+moments. Each optional date contributes one scalar restriction. This is a
+different moment choice, not an equivalent implementation of the
+conditional-index restrictions. A zero average placebo can hide offsetting
+nonzero index coefficients. Identification and validity of these average
+moments require their own substantive justification.
+{cmd:restrictions()} is accepted only after supported nonlinear logit or Poisson fits.
+
+{p 4 4 2}
+A weaker target-specific average formulation is a possible additional
+extension. It requires a separately established identifying map and joint
+estimation/covariance argument. It is not supplied by the legacy placebo
+option, and there is no {cmd:restrictions(average)} option.
 
 {p 4 4 2}
 Retain {cmd:baseline(cohort)} and the upstream normalization. If
@@ -178,8 +239,9 @@ behavior is unchanged.
 {title:Moment interpretation for CS-DR and nonlinear inputs}
 
 {p 4 4 2}
-The maintained estimate d is an outcome-scale ATT; optional h values are zero
-average outcome-scale placebo effects, or full conditional-index lead blocks
+The maintained estimate d is an outcome-scale ATT under the source's
+identifying assumptions; optional h values are average fitted-placebo
+moments, DR placebo contrasts, or full conditional-index lead blocks
 under {cmd:restrictions(index)}. For a fixed candidate, the adjustment
 is d - Cov(d,h) inv(Var(h)) h, using the same joint covariance throughout.
 This is a Gaussian covariance-weighted moment adjustment. Its Wald--J identity
@@ -188,8 +250,10 @@ and h=0. It does not assert equality with a constrained nonlinear refit or
 CS-DR re-estimation at alternative base periods.
 
 {p 4 4 2}
-With covariate interactions, zero average nonlinear placebo effects can be
-weaker than setting every index-pretrend coefficient to zero. The index route
+With covariate interactions, zero average nonlinear fitted-placebo moments
+can hold while index-pretrend coefficients are nonzero. They do not establish
+conditional-index parallel trends or the proposed target-specific extension.
+The index route
 uses the full coefficient block for target-level MD; the separate
 coefficient-MD projection followed by nonlinear prediction is not implemented. Identification,
 joint asymptotic normality and consistent covariance are required. CS-DR
@@ -240,6 +304,13 @@ estimates under that common selected joint model. These cohort rows are not
 cohort-focused estimates. {cmd:focus(both)} (default) reports cohort-focused
 rows, their aggregate ({cmd:agg_cohort}), and a separately optimized aggregate
 ({cmd:agg_focused}). The two aggregate estimators have the same fixed target.
+
+{p 4 4 2}
+After {cmd:jwselect_rcs} or {cmd:jwselect_sa_iw}, the source supplies one scalar
+population target. Only that estimate is reported. Focused selection defaults
+to {cmd:focus(aggregate)}; explicit {cmd:focus(cohort)} or {cmd:focus(both)} is
+rejected. The restriction maps still use their actual cohort/date labels,
+so manual masks, WBIC scopes and joint candidate families retain their meanings.
 
 {p 4 4 2}
 {cmd:candidates(nested)} starts with the empty set and adds eligible dates in
@@ -327,8 +398,10 @@ it must list every included target cell exactly once, including explicit zeros.
 Weights must be nonnegative and sum to one. They are never renormalized.
 With custom within-cohort weights, the aggregate is a weighted sum of cell
 effects and may not be a weighted sum of the displayed uniform cohort means.
-Estimated population-share weights require extra influence-function terms and
-are not implemented; the command treats supplied weights as fixed. Signed
+The command treats supplied {cmd:aggweights()} as fixed. For population
+Sun-Abraham shares, use {cmd:jwselect_sa_iw}, which adds their complete
+influence contribution before selection. Do not substitute estimated shares
+into {cmd:aggweights()} and interpret its covariance as population-IW inference. Signed
 contrasts are outside this initial averaging interface.
 
 {title:Confidence intervals}
@@ -351,10 +424,23 @@ Gaussian simulation. {cmd:reps()} and {cmd:seed()} set the simulation budget and
 {cmd:wbicmethod(mc)} uses the smallest candidate probability level that passes the
 McCloskey rejection-risk bound in the fitted Gaussian experiment.
 {cmd:mcsteps(9)} sets the number of candidate levels. {cmd:mcrefine} optionally
-searches for a lower certifiable level. If no level passes, {cmd:mcfallback(bb)}
-returns a separately protected Berger-Boos interval and identifies it as a fallback.
-{cmd:mcfallback(error)} stops the command instead. For a fallback, distinguish
-the protected upper bound from attainment of the {cmd:bbtol()} tolerance.
+searches for a lower certifiable level. The calibration allowance is
+{cmd:delta=mcerr()/2} with positive risk target
+{cmd:1-level()/100-delta}. McCloskey does not use {cmd:gamma()}.
+When no search level passes, the default {cmd:mcfallback(terminal)} returns
+the analytic terminal interval in the same family.
+Its finite half-width is evaluated on the normal-score scale and contains the
+baseline interval at the adjusted error level. {cmd:mcfallback(error)} stops
+when the search fails. Status 7 identifies a finite analytic terminal. Status 8
+denotes an exceptional whole-line return, displayed as [-inf, +inf]. Because
+Stata matrices have no signed infinity representation, its {cmd:e(ci)} endpoints
+are missing and {cmd:e(mc_terminal_diagnostics)} records {cmd:unbounded=1}.
+
+{p 4 4 2}
+The uniform asymptotic coverage result requires regular sampling inputs and
+outward numerical error control. Risk bounds are evaluated in double precision
+with numerical padding. This implementation does not supply a formal
+interval-arithmetic certificate for all floating-point operations.
 
 {p 4 4 2}
 Read the reported endpoints from {cmd:e(ci)} or {cmd:e(table)}. The adjusted
@@ -499,6 +585,14 @@ for the estimand and covariance convention of externally supplied matrices.
 {title:Saved results}
 
 {p 4 4 2}
+{cmd:e(scalar_target)} identifies a scalar population source and
+{cmd:e(target_label)} describes its target. For scalar sources, the sole
+{cmd:e(postmap)} row is a representative label, not a disaggregated cell;
+{cmd:estat cells} is unavailable. The joint canonical vector contains that
+one target followed by all optional moments. Its complete covariance includes
+the source-specific composition or population-share contribution.
+
+{p 4 4 2}
 Key matrices: e(b), e(V) for manual/WBIC only, e(V_fixed), e(table), e(ci),
 e(pvalue), e(output_map), e(baselines), e(postmap), e(hmap), e(selection),
 e(cell_selection), e(b_cells), e(V_cells), e(weights), e(scores),
@@ -506,9 +600,17 @@ e(candidates), e(joint_candidates), e(z), e(V_z), e(loading), e(targets).
 Numerical reselection also stores e(inference_diagnostics) and
 e(inference_extrema).
 The centered bootstrap stores {cmd:e(wbicengine)} and {cmd:e(wbic_pointwise_diagnostics)}.
-McCloskey stores {cmd:e(mc_diagnostics)}, {cmd:e(mc_profile_diagnostics)} and,
-when calibration is attempted, {cmd:e(mc_calibration)}. A protected fallback
-also populates {cmd:e(bb_diagnostics)}.
+McCloskey stores {cmd:e(mc_diagnostics)}, {cmd:e(mc_profile_diagnostics)},
+{cmd:e(mc_terminal_diagnostics)} and, when calibration is attempted,
+{cmd:e(mc_calibration)}. Terminal diagnostic columns are {cmd:output}, {cmd:used},
+{cmd:unbounded}, {cmd:s0}, {cmd:k_safe}, {cmd:half_width}, {cmd:epsilon} and
+{cmd:baseline_halfwidth}. The terminal uses {cmd:epsilon=1e-6}. Its {cmd:pstar}
+is stored missing because its probability may round to one. Retain {cmd:k_safe}
+when interpreting that return.
+The {cmd:mc_diagnostics} status is 0 for calibration, 1 for an unrequested output,
+2 for no-restriction normal inference, 7 for the analytic terminal and 8 for
+the exceptional whole-line return. The {cmd:rule_fallback} column identifies
+the observation-domain guard within the McCloskey rule.
 If K=0, hmap/selection/cell_selection/joint_candidates are absent.
 e(joint_candidates) is present for joint WBIC and aggregate-focused searches
 with K>0.
@@ -540,14 +642,17 @@ Macros record baseline, selection_method, wbic_scope, focus, candidate_type, agg
 covariance, inference, postwindow, sourcecmd, cmdline, inferoutputs,
 and prepared_directory. Source metadata are e(source_estimator),
 e(source_version), e(source_method), e(source_model), and e(restriction_scale).
-The source estimator is matrix, csdid, jwdid, or eventstudyinteract. e(source_version) is empty
+The source estimator is matrix, csdid, jwdid, eventstudyinteract, jwselect_rcs,
+or jwselect_sa_iw. e(source_version) is empty
 when the source does not expose a verified version, including jwdid; retain
-{cmd:which jwdid} output separately. e(version) and e(build) identify the
-installed release.
+{cmd:which jwdid} output separately. e(version) is {cmd:0.9.0} and
+e(build) is {cmd:0.9.0-20261104}. The exact build distinguishes this release
+from an archived development branch using the same public version.
+Start a fresh Stata session and recreate prepared jobs after upgrading.
 
 {p 4 4 2}
 {cmd:e(wbicmethod)} records the adjusted method. For McCloskey, inspect
-the calibration and fallback flags by output with {cmd:estat inference}.
+the calibration, terminal and guard flags by output with {cmd:estat inference}.
 
 {p 4 4 2}
 For each output, e(inference_diagnostics) has four rows, one per
@@ -583,7 +688,7 @@ With no eligible leads, index matrices are absent and both counts are zero.
 
 {title:Examples}
 
-{phang2}{cmd:csdid y x1 x2, ivar(id) time(year) gvar(first_treat) method(dr) nevertreated base_period(universal) analytical pointwise cluster(id)}
+{phang2}{cmd:csdid y x1 x2, ivar(id) time(year) gvar(first_treat) method(dr) nevertreated base_period(universal) analytical pointwise pscoretrim(1) cluster(id)}
 {phang2}{cmd:estimates store CS_SOURCE}
 {phang2}{cmd:jwselect, select(wbic) postwindow(0 2)}
 {phang2}{cmd:estimates restore CS_SOURCE}
@@ -591,12 +696,13 @@ With no eligible leads, index matrices are absent and both counts are zero.
 
 {phang2}{cmd:jwdid y x1 x2, ivar(id) tvar(year) gvar(first_treat) never method(logit) cluster(id)}
 {phang2}{cmd:estimates store NL_SOURCE}
-{phang2}{cmd:jwselect, select(wbic)}
+{phang2}{cmd:jwselect, select(wbic) restrictions(index)}
 {phang2}{cmd:estimates restore NL_SOURCE}
 {phang2}{cmd:jwselect, select(manual)}
 
 {p 4 4 2}
 For an exponential conditional mean use {cmd:method(poisson)} in the source fit.
+The explicit {cmd:restrictions(index)} above is also the nonlinear default.
 Restore the stored source fit before each
 new direct specification. The following example retains the linear workflow.
 

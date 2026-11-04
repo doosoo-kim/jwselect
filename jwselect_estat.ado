@@ -1,4 +1,4 @@
-*! jwselect estat 0.8.8 03nov2026
+*! jwselect estat 0.9.0 04nov2026
 program define jwselect_estat, rclass
     version 16.1
     if "`e(cmd)'" != "jwselect" error 301
@@ -12,6 +12,10 @@ program define jwselect_estat, rclass
     if trim(`"`rest'"') != "" error 198
     if "`subcmd'" == "design" {
         matlist e(baselines), format(%12.0g)
+        if e(scalar_target)==1 {
+            di as txt "One prespecified population target: `e(target_label)'"
+            di as txt "The postmap row is a representative label, not a disaggregated target cell."
+        }
         matlist e(postmap), format(%12.0g)
         if e(K)>0 matlist e(hmap), format(%12.0g)
         local copyfrom baselines postmap
@@ -59,6 +63,12 @@ program define jwselect_estat, rclass
         matrix `shownpv' = e(pvalue)
         matlist `shownci', format(%12.5g)
         matlist `shownpv', format(%12.5g)
+        if "`e(wbicmethod)'"=="mc" {
+            forvalues i=1/`=rowsof(e(mc_diagnostics))' {
+                if el(e(mc_diagnostics),`i',14)==8 ///
+                    di as txt "Target row `i': CI [-inf,+inf] (whole real line; arithmetic or regularity exception)."
+            }
+        }
         local copyfrom ci pvalue
         local copyto ci pvalue
         if "`e(inference)'" == "reselect" {
@@ -84,12 +94,19 @@ program define jwselect_estat, rclass
             di as txt "WBIC calibration: `e(wbicmethod)'"
             if "`e(wbicmethod)'"=="mc" {
                 di as txt "Mode: `e(mcmode)'; certified=1 means a continuum certificate or exact no-restriction normal inference."
-                di as txt "Status: 0 calibrated; 1 skipped; 2 normal; 5/6 protected BB fallback."
+                di as txt "Status: 0 calibrated grid; 1 skipped; 2 normal; 7 analytic terminal; 8 whole real line."
                 di as txt "rule_fallback=1 means the baseline-containing safeguard of the calibrated rule."
                 matlist e(mc_diagnostics), format(%12.5g)
                 local copyfrom `copyfrom' mc_diagnostics
                 local copyto `copyto' mc_diagnostics
                 local matrices : e(matrices)
+                if strpos(" `matrices' ", " mc_terminal_diagnostics ") {
+                    di as txt "Terminal normal score k_safe remains finite even when its probability rounds to one."
+                    di as txt "unbounded=1 explicitly denotes [-inf,+inf]; its numeric CI endpoints are stored missing."
+                    matlist e(mc_terminal_diagnostics), format(%12.5g)
+                    local copyfrom `copyfrom' mc_terminal_diagnostics
+                    local copyto `copyto' mc_terminal_diagnostics
+                }
                 if strpos(" `matrices' ", " mc_profile_diagnostics ") {
                     di as txt "Conditional-score calibration. Inspect pstar, risk_upper and risk_target for each requested output."
                     matlist e(mc_profile_diagnostics), format(%12.5g)
@@ -121,6 +138,10 @@ program define jwselect_estat, rclass
         }
     }
     else if "`subcmd'" == "cells" {
+        if e(scalar_target)==1 {
+            di as err "This source supplies one prespecified population target, with no disaggregated selected cells"
+            exit 198
+        }
         tempname celltab
         matrix `celltab' = e(postmap)
         mata: st_matrix("`celltab'",(st_matrix("`celltab'"),st_matrix("e(b_cells)")',sqrt(diagonal(st_matrix("e(V_cells)")))))

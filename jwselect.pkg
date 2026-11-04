@@ -1,14 +1,22 @@
 v 3
-d jwselect 0.8.8: preperiod selection after jwdid, csdid, or Sun-Abraham
-d Distribution-Date: 20261103
+d jwselect 0.9.0: preperiod selection for panel and repeated-cross-section DiD
+d Distribution-Date: 20261104
 d Manual, Wald-BIC, and focused selection for cohort and aggregate effects.
 f jwselect.ado
 f _jwselect_index.ado
 f _jwselect_jwdid.ado
 f _jwselect_csdid.ado
+f _jwselect_scalar.ado
+f jwselect_rcs.ado
+f _jwselect_rcs.ado
+F _jwselect_rcs.mata
+f jwselect_rcs.sthlp
 f jwselect_sa.ado
 f _jwselect_sa.ado
 f jwselect_sa.sthlp
+f jwselect_sa_iw.ado
+F _jwselect_sa_iw_mata.do
+f jwselect_sa_iw.sthlp
 f _jwselect_display.ado
 F _jwselect_mata.do
 f jwselect_estat.ado

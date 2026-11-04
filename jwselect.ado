@@ -1,4 +1,4 @@
-*! jwselect 0.8.8 03nov2026
+*! jwselect 0.9.0 04nov2026
 program define jwselect, eclass
     version 16.1
     if "`e(cmd)'" == "jwselect" {
@@ -38,8 +38,7 @@ program define _jwselect_work, eclass
         POSTWindow(numlist integer min=2 max=2) ///
         AGGregate(string) AGGWeights(name) VCE(string) RESTRictions(string) ///
         INFERence(string) WBICMethod(string) MCMOde(string) MCFallback(string) ///
-        WBICSolver(string) WBICEngine(string) ISReps(numlist integer max=1 >=100) ///
-        BBCells(numlist integer max=1 >=1 <=65536) BBTol(numlist max=1 >0) MCBeta(numlist max=1 >0 <1) ///
+        WBICSolver(string) WBICEngine(string) MCBeta(numlist max=1 >0 <1) ///
         MCValidate(numlist integer max=1 >=100) MCSteps(numlist integer max=1 >=2) ///
         MCCells(numlist integer max=1 >=1) MCREFine MCRadius(numlist max=1 >=0) MCPMax(numlist max=1 >=0 <1) ///
         Level(cilevel) GAMma(real .01) MCErr(real .001) REPS(integer 19999) SEED(integer 12345) ///
@@ -54,8 +53,10 @@ program define _jwselect_work, eclass
     if "`select'" == "" local select wbic
     local wbicscope_explicit = ("`wbicscope'" != "")
     if "`wbicscope'" == "" local wbicscope cohort
+    local focus_explicit = ("`focus'" != "")
     if "`focus'" == "" local focus both
     if "`candidates'" == "" local candidates nested
+    local aggregate_explicit = ("`aggregate'" != "")
     if "`aggregate'" == "" local aggregate equalcohort
     if "`inference'" == "" local inference auto
     foreach opt in baseline select wbicscope focus candidates aggregate vce inference restrictions wbicmethod mcmode mcfallback wbicsolver wbicengine {
@@ -72,7 +73,7 @@ program define _jwselect_work, eclass
     if !inlist("`candidates'", "nested", "all") error 198
     if !inlist("`aggregate'", "equalcohort", "equalcell") error 198
     if !inlist("`restrictions'", "", "index", "placebo") {
-        di as err "restrictions() must be index or placebo"
+        di as err "restrictions() must be index (default) or placebo"
         exit 198
     }
     if !inlist("`inference'", "auto", "reselect", "envelope", "wbic", "none") error 198
@@ -107,13 +108,13 @@ program define _jwselect_work, eclass
         di as err "McCloskey inference uses mcmode(certified) and wbicsolver(grid)"
         exit 198
     }
-    if !inlist("`mcfallback'","","bb","error") {
-        di as err "mcfallback() must be bb or error"
+    if !inlist("`mcfallback'","","terminal","error") {
+        di as err "mcfallback() must be terminal or error"
         exit 198
     }
-    if `mc' & "`mcfallback'"=="" local mcfallback bb
-    local mccontrols isreps bbcells bbtol mcbeta mcvalidate mcsteps mccells mcradius mcpmax
-    local mcdefaults 8192   8192    .05   .4     9999       9       256     0        0
+    if `mc' & "`mcfallback'"=="" local mcfallback terminal
+    local mccontrols mcbeta mcvalidate mcsteps mccells mcradius mcpmax
+    local mcdefaults .4     9999       9       256     0        0
     local i 0
     foreach opt of local mccontrols {
         local ++i
@@ -181,6 +182,22 @@ program define _jwselect_work, eclass
             exit 198
         }
     }
+    if !`frommatrix' & "`e(cmd)'" == "jwdid" & inlist("`e(cmd2)'", "logit", "poisson") {
+        if "`restrictions'" == "" local restrictions index
+    }
+    local scalarinput = (!`frommatrix' & "`e(jw_schema)'" == "scalar_v1")
+    if `scalarinput' {
+        if "`postwindow'`aggweights'" != "" | "`baseline'" != "cohort" | `anticipation_explicit' | `aggregate_explicit' {
+            di as err "Set the target, baseline, and population in the scalar first-stage command; they cannot be changed after fitting"
+            exit 198
+        }
+        if `focus_explicit' & "`focus'" != "aggregate" {
+            di as err "This source supplies one population target; use focus(aggregate)"
+            exit 198
+        }
+        local focus aggregate
+    }
+    tempname rawd rawjointV rawbases rawtargetmap
     tempname rawb rawV rawcells rawtable
     local rawh
     local rawVh
@@ -215,14 +232,18 @@ program define _jwselect_work, eclass
         matrix `rawcells' = `cells'
     }
     else {
-        if !inlist("`e(cmd)'", "jwdid", "csdid", "jwselect_sa") {
+        if !inlist("`e(cmd)'", "jwdid", "csdid", "jwselect_sa", "jwselect_rcs", "jwselect_sa_iw") {
             di as err "run a supported jwdid, csdid, or jwselect_sa fit first, or supply bmat(), vmat(), cells(), and nunits()"
             if "`e(cmd)'" == "reghdfe" di as err "For Sun-Abraham, fit with jwselect_sa so the complete event map and estimation sample can be verified"
             exit 301
         }
         local sourceestimator `e(cmd)'
         quietly generate byte `sample' = e(sample)
-        if "`sourceestimator'" == "jwselect_sa" {
+        if `scalarinput' {
+            if "`vce'" == "" local vce supplied
+            _jwselect_scalar, vce(`vce')
+        }
+        else if "`sourceestimator'" == "jwselect_sa" {
             if "`vce'" == "" local vce supplied
             _jwselect_sa, vce(`vce')
         }
@@ -237,10 +258,24 @@ program define _jwselect_work, eclass
             }
             else _jwselect_jwdid, vce(`vce')
         }
-        matrix `rawb' = r(bgt)
-        matrix `rawV' = r(Vgt)
-        matrix `rawcells' = r(cells)
-        matrix `rawtable' = r(upstream_table)
+        if `scalarinput' {
+            matrix `rawd' = r(d)
+            matrix `rawjointV' = r(V)
+            matrix `rawbases' = r(bases)
+            matrix `rawtargetmap' = r(targetmap)
+            local scalar_target_label `"`r(target_label)'"'
+            if r(K)>0 {
+                tempname rawh rawhmap
+                matrix `rawh' = r(h)
+                matrix `rawhmap' = r(hmap)
+            }
+        }
+        else {
+            matrix `rawb' = r(bgt)
+            matrix `rawV' = r(Vgt)
+            matrix `rawcells' = r(cells)
+            matrix `rawtable' = r(upstream_table)
+        }
         local upstream_stat `r(upstream_stat)'
         local nunits = r(N_units)
         local N_obs = r(N_obs)
@@ -248,6 +283,7 @@ program define _jwselect_work, eclass
         local N_clusters = r(N_clusters)
         local gap = r(gap)
         local upstream_anticipation = r(anticipation)
+        if `scalarinput' local anticipation = `upstream_anticipation'
         local sourcecmd `"`r(sourcecmd)'"'
         local sourceversion `"`r(sourceversion)'"'
         local sourcemethod `"`r(method)'"'
@@ -272,7 +308,7 @@ program define _jwselect_work, eclass
         if "`sourceestimator'" == "jwselect_sa" local sourceestimator eventstudyinteract
         // These backends supply baseline ATTs and zero-placebo moments.
         // Their effects cannot be rebased by subtracting another ATT.
-        if "`sourceestimator'" == "csdid" | "`sourcemodel'" == "nonlinear" {
+        if !`scalarinput' & ("`sourceestimator'" == "csdid" | "`sourcemodel'" == "nonlinear") {
             if "`baseline'" != "cohort" {
                 di as err "CS-DR and nonlinear adapters require baseline(cohort); alternate-baseline refits are not implemented"
                 exit 198
@@ -300,7 +336,7 @@ program define _jwselect_work, eclass
     // Check the entry point as well as the completion/version marker.
     capture mata: assert(findexternal("jw_stata()") != NULL)
     local entryrc = _rc
-    capture mata: assert(jw_version() == "0.8.8")
+    capture mata: assert(jw_version() == "0.9.0" & jw_build() == "0.9.0-20261104")
     local versionrc = _rc
     if `entryrc' | `versionrc' {
         capture mata: assert(findexternal("jw_version()") != NULL)
@@ -322,7 +358,7 @@ program define _jwselect_work, eclass
         }
         capture mata: assert(findexternal("jw_stata()") != NULL)
         local entryrc = _rc
-        capture mata: assert(jw_version() == "0.8.8")
+        capture mata: assert(jw_version() == "0.9.0" & jw_build() == "0.9.0-20261104")
         local versionrc = _rc
         if `entryrc' | `versionrc' {
             di as err "The Mata loader ended without defining the complete jwselect module"
@@ -341,7 +377,7 @@ program define _jwselect_work, eclass
     }
     if `bootstrap' di as txt "Computing centered WBIC bootstrap interval (`wbicengine', `reps' draws)..."
     if `mc' di as txt "Computing certified McCloskey intervals from the conditional score..."
-    tempname outpwdiag outgrid outprofile
+    tempname outpwdiag outgrid outprofile outterminal
     mata: jw_stata()
     if `"`prepare'"'!="" {
         _jwselect_jobguard, directory(`"`prepare'"') action(finalize)
@@ -357,7 +393,7 @@ program define _jwselect_work, eclass
     matrix `pv' = `outtable'[1...,5]
     if "`select'" == "focused" ereturn post `outb', `sampleopt' `nobsopt'
     else ereturn post `outb' `outV', `sampleopt' `nobsopt'
-    if !`frommatrix' ereturn matrix upstream_table = `rawtable'
+    if !`frommatrix' & !`scalarinput' ereturn matrix upstream_table = `rawtable'
     ereturn matrix V_fixed = `Vfixed'
     ereturn matrix table = `outtable'
     ereturn matrix ci = `ci'
@@ -399,6 +435,8 @@ program define _jwselect_work, eclass
         ereturn local inference_bound mc_certified_calibration
         ereturn matrix mc_diagnostics = `outmcdiag'
         ereturn matrix mc_profile_diagnostics = `outprofile'
+        ereturn matrix mc_terminal_diagnostics = `outterminal'
+        ereturn local mc_unbounded_rule "unbounded=1 denotes [-inf,+inf]; endpoints stored missing"
         capture confirm matrix `outmccal'
         if !_rc ereturn matrix mc_calibration = `outmccal'
         capture confirm matrix `outbbdiag'
@@ -412,7 +450,9 @@ program define _jwselect_work, eclass
             ereturn scalar `control' = ``control''
         }
     }
-    ereturn scalar N_units = `nunits'
+    ereturn scalar scalar_target = `scalarinput'
+    if `scalarinput' ereturn local target_label `"`scalar_target_label'"'
+    ereturn scalar N_units = `nunits' 
     ereturn scalar N_observations = `N_obs'
     ereturn scalar N_covariates = `N_covariates'
     ereturn scalar N_clusters = `N_clusters'
@@ -479,14 +519,14 @@ program define _jwselect_work, eclass
     ereturn local source_model `sourcemodel'
     ereturn local restriction_scale `restriction_scale'
     if "`sourcemodel'" == "nonlinear" {
-        if "`restrictions'" == "" local restrictions placebo
+        if "`restrictions'" == "" local restrictions index
         ereturn local restrictions `restrictions'
     }
     ereturn local cmdline `"jwselect `0'"'
     ereturn local estat_cmd jwselect_estat
     ereturn local predict jwselect_p
-    ereturn local version 0.8.8
-    ereturn local build 0.8.8
+    ereturn local version 0.9.0
+    ereturn local build 0.9.0-20261104
     ereturn local cmd jwselect
     _jwselect_display, `nocohort' `celleffects'
 end

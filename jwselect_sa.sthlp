@@ -1,5 +1,5 @@
 {smcl}
-{* *! jwselect 0.8.8 03nov2026}{...}
+{* *! jwselect 0.9.0 04nov2026}{...}
 {title:jwselect_sa -- Fit validated Sun-Abraham inputs for jwselect}
 
 {title:Syntax}
@@ -81,6 +81,13 @@ Using estimated cohort shares in {cmd:aggweights()} treats those numbers as
 fixed. The reported covariance excludes the additional sampling variation
 from estimating population cohort shares. Native IW matrices retained
 from the source are diagnostics, not inputs to jwselect's selector.
+
+{p 4 4 2}
+For population IW inference including estimated cohort shares, run
+{help jwselect_sa_iw} after this source fit. It creates a scalar
+population-share-weighted target and its complete joint influence covariance
+with individual cohort/preperiod restrictions. Then run {cmd:jwselect} on that
+source. The existing direct fixed-weight path remains available.
 
 {title:Saved results}
 {p 4 4 2}

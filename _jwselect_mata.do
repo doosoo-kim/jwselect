@@ -1,4 +1,4 @@
-*! jwselect 0.8.8 03nov2026
+*! jwselect 0.9.0 04nov2026
 version 16.1
 mata:
 
@@ -208,6 +208,93 @@ struct jw_model scalar jw_design(real matrix braw, real matrix Vraw,
     M.nunit = nunit
     M.gap = gap
     return(M)
+}
+
+
+/* One prespecified population target with cohort-labelled optional moments.
+   Source covariance includes all nuisance, target-distribution and share IFs. */
+struct jw_model scalar jw_design_scalar(real matrix d, real matrix h,
+    real matrix V, real matrix hm, real matrix bases, real matrix tm,
+    real scalar nunit, real scalar gap)
+{
+    struct jw_model scalar M
+    real scalar k, G, j, b, offset
+    real colvector ev
+    k=length(h)
+    G=rows(bases)
+    if (length(d)!=1 | hasmissing(d) | G<1 | cols(bases)!=2 |
+        hasmissing(bases) | nunit<=1 | missing(nunit) | nunit!=floor(nunit) | gap<=0 | missing(gap))
+        jw_design_error("invalid scalar-target source dimensions or normalizers")
+    if (rows(uniqrows(sort(bases[,1],1)))!=G | any(bases[,1]:<=0))
+        jw_design_error("scalar source cohort/baseline map is not unique")
+    for (j=1;j<=G;j++) {
+        offset=(bases[j,1]-bases[j,2])/gap
+        if (bases[j,2]<=0 | offset<1 | abs(offset-round(offset))>1e-8)
+            jw_design_error("scalar source baseline must precede treatment on the specified gap")
+    }
+    if (rows(V)!=1+k | cols(V)!=1+k | hasmissing(V) | hasmissing(h))
+        jw_design_error("scalar source requires the complete (target, restrictions) covariance")
+    if (max(abs(V-V'))>1e-10*max((1,max(abs(V)))))
+        jw_design_error("scalar source covariance is not symmetric")
+    V=(V+V')/2
+    ev=vec(symeigenvalues(V))
+    if (min(ev)<=0) jw_design_error("retained scalar-target covariance must be positive definite")
+    if (k & (rows(hm)!=k | cols(hm)!=2 | hasmissing(hm)))
+        jw_design_error("scalar restriction map must identify every cohort/date")
+    if (!k) hm=J(0,2,.)
+    if (k & rows(uniqrows(sort(hm,(1,2))))!=k)
+        jw_design_error("scalar restriction map contains duplicate cohort/date rows")
+    for (j=1;j<=k;j++) {
+        if (sum(bases[,1]:==hm[j,1])!=1 | hm[j,2]>=hm[j,1])
+            jw_design_error("scalar restriction refers to an unsupported or treated date")
+        b=sum(select(bases[,2],bases[,1]:==hm[j,1]))
+        offset=(hm[j,2]-b)/gap
+        if (hm[j,2]<=0 | hm[j,2]==b | abs(offset-round(offset))>1e-8)
+            jw_design_error("scalar optional dates must differ from baseline and respect the specified gap")
+    }
+    if (rows(tm)!=1 | cols(tm)!=2 | hasmissing(tm) |
+        sum(bases[,1]:==tm[1,1])!=1)
+        jw_design_error("scalar source target map is invalid")
+    offset=(tm[1,2]-tm[1,1])/gap
+    if (offset<0 | abs(offset-round(offset))>1e-8)
+        jw_design_error("scalar target date must be post-treatment on the specified gap")
+    M.z=vec(d)\vec(h)
+    M.V=V
+    M.postmap=tm
+    M.hmap=hm
+    M.groups=bases[,1]
+    M.bases=bases[,2]
+    M.T=(J(G,1,1),J(G,k,0))
+    M.w=1
+    M.p=1
+    M.k=k
+    M.nunit=nunit
+    M.gap=gap
+    return(M)
+}
+
+/* Discard internal per-owner diagnostic copies of the same target before
+   inference, keeping the actual scalar selected estimator and its family. */
+struct jw_fit scalar jw_scalar_fit(struct jw_model scalar M,
+    struct jw_fit scalar F)
+{
+    real scalar o
+    real colvector ix
+    o=rows(M.groups)+1
+    ix=selectindex(F.allmeta[,1]:==o)
+    F.A=F.A[o,.]
+    F.targets=F.targets[o,.]
+    F.selected=F.selected[o,.]
+    F.outmap=F.outmap[o,.]
+    F.allA=F.allA[ix,.]
+    F.allT=F.allT[ix,.]
+    F.allmeta=F.allmeta[ix,.]
+    F.allmeta[,1]=J(rows(ix),1,1)
+    F.selA=F.selA[ix,.]
+    F.selT=F.selT[ix,.]
+    F.cellA=F.A
+    F.cell_selected=F.selected
+    return(F)
 }
 
 /* ===== jwselect_candidates.mata ===== */
@@ -2779,6 +2866,7 @@ struct jw_mc_result {
     real matrix bb_diagnostics
     real matrix cis_diagnostics
     real matrix cis_points
+    real matrix terminal_diagnostics
 }
 
 struct jw_mc_state {
@@ -6101,10 +6189,15 @@ void jw_mcp_actions(real matrix V, real matrix c, real rowvector v,
         if (!cols(ix)) continue
         S=V[ix,ix]
         coef=cholsolve(S,c[ix,.])
-        if (hasmissing(coef)) jw_core_error("singular candidate covariance in McCloskey profile")
+        if (hasmissing(coef)) {
+            b=sd=caps=J(rows(masks),cols(c),.)
+            return
+        }
         gain=colsum(coef:*(S*coef)):/v
-        if (hasmissing(gain) | min(gain)<-1e-10 | max(gain)>=1)
-            jw_core_error("degenerate candidate variance in McCloskey profile")
+        if (hasmissing(gain) | min(gain)<-1e-10 | max(gain)>=1) {
+            b=sd=caps=J(rows(masks),cols(c),.)
+            return
+        }
         b[j,.]=sqrt(colmax((J(1,cols(c),0)\gain)))
         sd[j,.]=sqrt(1:-b[j,.]:^2)
         if (scope=="joint") caps[j,.]=sqrt(cols(ix)*logn)*b[j,.]
@@ -6121,6 +6214,32 @@ void jw_mcp_actions(real matrix V, real matrix c, real rowvector v,
     caps=caps:*(1+1e-11):+1e-11
 }
 
+/* The terminal is evaluated on the normal-score scale, without rounding
+   its probability to one. Its finite envelope contains the corresponding
+   folded-normal interval and the baseline normal interval. Padding here
+   is numerical protection, not a validated floating-point certificate.
+   Return (k_safe, half_width, unbounded, baseline_halfwidth). */
+real rowvector jw_mcp_terminal(real scalar move, real scalar bias,
+    real scalar se, real scalar basevar, real scalar s0, real scalar pmax,
+    real scalar zbeta, real scalar basecv, real scalar target, real scalar guard)
+{
+    real scalar k,width,baseline,epsilon
+    epsilon=1e-6
+    if (hasmissing((move,bias,se,basevar,s0,pmax,zbeta,basecv,target,guard)) |
+        bias<0 | se<=0 | basevar<=0 | s0<=0 | s0>1 |
+        pmax<=.5 | pmax>=1 | target<=0 | target>=1)
+        return((.,.,1,.))
+    baseline=invnormal(1-target/2)*sqrt(basevar)
+    k=max((invnormal(pmax),(invnormal(1-target/2)+epsilon)/s0))
+    if (guard) width=abs(move)+basecv*sqrt(basevar)
+    else width=abs(move)+zbeta*bias+se*(k+sqrt(2*ln(2)))
+    if (hasmissing((k,width,baseline))) return((k,.,1,baseline))
+    width=max((width,abs(move)+baseline))
+    width=width*(1+1e-12)+1e-12
+    if (missing(width)) return((k,.,1,baseline))
+    return((k,width,0,baseline))
+}
+
 struct jw_mc_result scalar jw_infer_mc_profile(struct jw_model scalar M,
     struct jw_family scalar C, struct jw_fit scalar F, real matrix joint,
     string scalar scope, real scalar maxjoint, real scalar level,
@@ -6131,23 +6250,22 @@ struct jw_mc_result scalar jw_infer_mc_profile(struct jw_model scalar M,
     real matrix grid, | real scalar refine, real scalar bandcells, real scalar bandreps)
 {
     struct jw_mc_result scalar R
-    struct jw_grid_result scalar BB
     real matrix masks,V,c,cc,acovs,b,sd,caps,targets
-    real rowvector active,v,failed,pgrid,owners,ix,oktargets,band
+    real rowvector active,v,pgrid,owners,ix,oktargets,band,terminal,endpoints
     real colvector risks,h,localrows,quantiles
     real scalar o,j,g,i,d,nout,ns,maxpen,listed,B,alpha,target,tau,basecv,zbeta,
-        rho,s0,guard,bias,move,chosen,width,nq,route,risk,cv,next,bandseed
+        rho,s0,guard,bias,move,chosen,width,nq,route,risk,cv,next,bandseed,actionsok
     if (args()<24) refine=0
     if (args()<25) bandcells=256
     if (args()<26) bandreps=9999
     alpha=1-level/100
     target=alpha-mcerr/2
-    if (missing(target) | gamma<=0 | mcerr<=0 | gamma+mcerr>=alpha |
+    if (missing(target) | target<=0 | mcerr<=0 |
         mcbeta<=0 | mcbeta>=1 | steps<2 | radius<0)
         jw_core_error("invalid McCloskey profile controls")
     if (scope!="joint" & scope!="cohort") jw_core_error("invalid WBIC selection scope")
     if (scope=="cohort" & rows(joint)) jw_core_error("jointmatrix() requires joint WBIC")
-    if (fallback!="bb" & fallback!="error") jw_core_error("invalid McCloskey fallback")
+    if (fallback!="terminal" & fallback!="error") jw_core_error("McCloskey fallback must be terminal or error")
     if (!pmax) pmax=1-target/100
     if (pmax<1-target | pmax>=1) jw_core_error("mcpmax() is outside the admissible probability range")
     pgrid=1:-target:+((0..(steps-1))/(steps-1))*(pmax-(1-target))
@@ -6161,12 +6279,14 @@ struct jw_mc_result scalar jw_infer_mc_profile(struct jw_model scalar M,
     R.calibration=J(steps,2+3*cols(outputs),.)
     R.calibration[.,1..2]=((1::steps),pgrid')
     R.bb_diagnostics=J(0,0,.)
+    R.terminal_diagnostics=J(nout,8,.)
     R.cis_diagnostics=R.cis_points=grid=J(0,0,.)
     profile=J(nout,11,.)
     for (o=1;o<=nout;o++) {
         R.table[o,1..2]=(F.A[o,.]*M.z,sqrt(jw_fixed_variance(M.V,F.A[o,.])))
         R.diagnostics[o,(1,14)]=(o,1)
         profile[o,(1,8,9)]=(o,1,9)
+        R.terminal_diagnostics[o,(1,2,3,7)]=(o,0,0,1e-6)
     }
     listed=1
     ns=1
@@ -6234,7 +6354,7 @@ struct jw_mc_result scalar jw_infer_mc_profile(struct jw_model scalar M,
         jw_mcp_actions(V,c[.,oktargets],v[oktargets],masks[.,active],owners,
             scope,ln(M.nunit),B,b,sd,caps)
     }
-    failed=J(1,0,.)
+    actionsok=!hasmissing(b) & !hasmissing(sd) & !hasmissing(caps)
     nq=65536
     quantiles=invnormal(.5:+.5*(1::(nq-1))/nq)
     for (i=1;i<=cols(outputs);i++) {
@@ -6251,7 +6371,7 @@ struct jw_mc_result scalar jw_infer_mc_profile(struct jw_model scalar M,
             chosen=1
             risks[1]=target
         }
-        else if (any(oktargets:==i)) {
+        else if (any(oktargets:==i) & (!listed | actionsok)) {
             ix=selectindex(oktargets:==i)
             j=ix[1]
             rho=sqrt(acovs[i])
@@ -6279,7 +6399,7 @@ struct jw_mc_result scalar jw_infer_mc_profile(struct jw_model scalar M,
                     ln(M.nunit),B,target,mcbeta,pgrid[g],bandseed,bandcells,bandreps,
                     mcerr/(2*steps*cols(outputs)))
                 if (cols(band)!=3 | hasmissing(band) | band[1]<0 | band[1]>1 |
-                    min(band[2..3])<0) jw_core_error("invalid McCloskey band bound")
+                    min(band[2..3])<0) break
                 profile[o,10..11]=profile[o,10..11]+band[2..3]
                 risks[g]=min((risks[g],band[1]))
                 if (risks[g]>target) break
@@ -6290,12 +6410,6 @@ struct jw_mc_result scalar jw_infer_mc_profile(struct jw_model scalar M,
         R.calibration[.,1+3*i]=risks
         R.calibration[.,2+3*i]=J(steps,1,0)
         profile[o,(1,2,3,6,7,9)]=(o,d,ns,target,nq,route)
-        if (!chosen) {
-            failed=(failed,o)
-            R.diagnostics[o,11]=risks[steps]
-            profile[o,5]=risks[steps]
-            continue
-        }
         /* Only after choosing p evaluate the actual public joint-MD action. */
         if (max(abs(F.A[o,.]-jw_loading(M.V,F.targets[o,.],F.selected[o,.],M.k)))>
             1e-8*(1+max(abs(F.A[o,.]))))
@@ -6303,25 +6417,46 @@ struct jw_mc_result scalar jw_infer_mc_profile(struct jw_model scalar M,
         ix=M.p:+active
         move=(F.A[o,ix]-F.targets[o,ix])*h
         bias=sqrt(max((0,(F.A[o,ix]-F.targets[o,ix])*V*(F.A[o,ix]-F.targets[o,ix])')))
-        if (guard) width=abs(move)+basecv*sqrt(v[i])
-        else width=jw_mcr_foldquantile(abs(move)+zbeta*bias,R.table[o,2],pgrid[chosen])
+        if (chosen) {
+            if (guard) width=abs(move)+basecv*sqrt(v[i])
+            else width=jw_mcr_foldquantile(abs(move)+zbeta*bias,R.table[o,2],pgrid[chosen])
+            if (missing(width) | hasmissing(R.table[o,1]:+(-1,1)*width)) chosen=0
+        }
+        if (!chosen) {
+            if (fallback=="error") jw_core_error("McCloskey profile did not certify a grid level; use mcfallback(terminal) or expand the probability grid")
+            s0=(!missing(acovs[i]) & acovs[i]<1 ? sqrt(1-acovs[i]) : .)
+            terminal=jw_mcp_terminal(move,bias,R.table[o,2],v[i],s0,pmax,zbeta,basecv,target,guard)
+            R.terminal_diagnostics[o,.]=(o,1,terminal[3],s0,terminal[1],terminal[2],1e-6,terminal[4])
+            if (!terminal[3]) {
+                width=terminal[2]
+                endpoints=R.table[o,1]:+(-1,1)*width
+                endpoints=endpoints:+(-1,1)*1e-12*(1+abs(R.table[o,1])+width)
+                if (hasmissing(endpoints)) {
+                    terminal[3]=1
+                    R.terminal_diagnostics[o,3]=1
+                    R.terminal_diagnostics[o,6]=.
+                }
+            }
+            if (terminal[3]) {
+                /* Missing endpoints are paired with an explicit whole-line
+                   flag and displayed as [-inf,+inf] by both public displays. */
+                R.table[o,3..4]=J(1,2,.)
+                R.diagnostics[o,10..16]=(.,0,0,.,8,0,guard)
+                profile[o,(4,5,8,9)]=(.,0,8,8)
+                if (progress) printf("McCloskey output %g: arithmetic or regularity exception; whole real line\n",o)
+            }
+            else {
+                R.table[o,3..4]=endpoints
+                R.diagnostics[o,10..16]=(.,target,0,width/R.table[o,2],7,1,guard)
+                profile[o,(4,5,8,9)]=(.,target,7,7)
+                if (progress) printf("McCloskey output %g: analytic terminal, k_safe=%g\n",o,terminal[1])
+            }
+            continue
+        }
         R.table[o,3..4]=R.table[o,1]:+(-1,1)*width
         R.diagnostics[o,10..16]=(pgrid[chosen],risks[chosen],0,width/R.table[o,2],0,1,guard)
         profile[o,(4,5,8)]=(pgrid[chosen],risks[chosen],0)
         if (progress) printf("McCloskey profile output %g: p=%g, global risk <= %g, route %g\n",o,pgrid[chosen],risks[chosen],route)
-    }
-    if (cols(failed)) {
-        if (fallback=="error") jw_core_error("McCloskey profile did not certify a level; use mcfallback(bb) or expand the probability grid")
-        BB=jw_infer_bb_grid(M,C,F,joint,scope,maxjoint,100*(1-target),gamma,mcerr/2,
-            reps,cells,tol,failed,progress,pilotreps,seed)
-        R.bb_diagnostics=BB.diagnostics
-        grid=BB.grid
-        for (i=1;i<=cols(failed);i++) {
-            o=failed[i]
-            R.table[o,.]=BB.table[o,.]
-            R.diagnostics[o,13..15]=(BB.diagnostics[o,10],5,0)
-            profile[o,8]=5
-        }
     }
     return(R)
 }
@@ -6330,7 +6465,7 @@ struct jw_mc_result scalar jw_infer_mc_profile(struct jw_model scalar M,
 /* jwselect 0.6.0: portable, resumable objective-by-start jobs.
 
    The 0.3.0 serialized-format identifiers are retained because the binary
-   layouts are unchanged; jw_version() identifies the package build.
+   layouts are unchanged; jw_build() identifies the exact package build.
 
    Only numeric/string matrices are serialized with fputmatrix, not opaque
    compiled code or raw observations. Prepare and serial inference consume
@@ -6891,7 +7026,15 @@ void jw_stata()
     pw=J(1,0,.)
     if (st_local("postwindow")!="") pw=strtoreal(tokens(st_local("postwindow")))
     indexblocks = st_local("restriction_scale")=="conditional_index"
-    if (indexblocks) {
+    if (st_local("scalarinput")=="1") {
+        M=jw_design_scalar(st_matrix(st_local("rawd")),jw_optional_matrix("rawh"),
+            st_matrix(st_local("rawjointV")),jw_optional_matrix("rawhmap"),
+            st_matrix(st_local("rawbases")),st_matrix(st_local("rawtargetmap")),
+            strtoreal(st_local("nunits")),strtoreal(st_local("gap")))
+        C=jw_candidates(M,selector,st_local("candidates"),jw_optional_matrix("prematrix"),
+            jw_optional_matrix("candmatrix"),strtoreal(st_local("maxcand")))
+    }
+    else if (indexblocks) {
         M=jw_design_index(st_matrix(st_local("rawb")),st_matrix(st_local("rawV")),
             st_matrix(st_local("rawcells")),jw_optional_matrix("rawh"),
             jw_optional_matrix("rawVh"),jw_optional_matrix("rawVdh"),
@@ -6912,6 +7055,7 @@ void jw_stata()
     joint=jw_optional_matrix("jointmatrix")
     if (indexblocks & rows(joint)>0) jw_block_masks_check(M.hmap,joint)
     F=jw_run_scope(M,C,joint,selector,focus,strtoreal(st_local("maxjoint")),st_local("wbicscope"))
+    if (st_local("scalarinput")=="1") F=jw_scalar_fit(M,F)
     outputs=J(1,0,.)
     if (st_local("inferoutputs")!="") outputs=strtoreal(tokens(st_local("inferoutputs")))
     if (cols(outputs)>0) {
@@ -6955,8 +7099,7 @@ void jw_stata()
                 st_local("progress")!="",strtoreal(st_local("mcsteps")),
                 strtoreal(st_local("mcradius")),strtoreal(st_local("mcpmax")),
                 strtoreal(st_local("mcbeta")),st_local("mcfallback"),
-                strtoreal(st_local("reps")),strtoreal(st_local("bbcells")),
-                strtoreal(st_local("bbtol")),strtoreal(st_local("isreps")),
+                0,0,0,0,
                 strtoreal(st_local("seed")),profile,profilegrid,
                 st_local("mcrefine")!="",strtoreal(st_local("mccells")),
                 strtoreal(st_local("mcvalidate")))
@@ -6964,6 +7107,9 @@ void jw_stata()
             jw_names("outprofile",("output"\ "nactive"\ "candidates"\ "pstar"\
                 "risk_upper"\ "risk_target"\ "quadrature"\ "status"\ "route"\
                 "band_cells"\ "band_draws"),0)
+            jw_put("outterminal",MC.terminal_diagnostics)
+            jw_names("outterminal",("output"\ "used"\ "unbounded"\ "s0"\
+                "k_safe"\ "half_width"\ "epsilon"\ "baseline_halfwidth"),0)
             if (rows(profilegrid)>0) {
                 jw_put("outgrid",profilegrid)
                 jw_names("outgrid",("output"\ "nactive"\ "candidates"\ "cells"\ "vertices"\
@@ -7187,10 +7333,15 @@ void jw_pretrend_stata()
     }
 }
 
+string scalar jw_build()
+{
+    return("0.9.0-20261104")
+}
+
 /* Completion marker must be LAST: a partially compiled bridge is not ready. */
 string scalar jw_version()
 {
-    return("0.8.8")
+    return("0.9.0")
 }
 
 end
