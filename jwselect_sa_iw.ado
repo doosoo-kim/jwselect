@@ -1,4 +1,4 @@
-*! jwselect 0.9.0 04nov2026: population interaction-weighted SA source
+*! jwselect 0.9.1 16nov2026: population interaction-weighted SA source
 program define jwselect_sa_iw, eclass
     version 16.1
     if `"`0'"'=="" {
@@ -36,7 +36,7 @@ program define jwselect_sa_iw, eclass
     quietly summarize `tvar' if `touse', meanonly
     local first=r(min)
     estimates store `previous'
-    capture mata: assert(jw_sa_iw_version()=="0.9.0")
+    capture mata: assert(jw_sa_iw_version()=="0.9.1")
     if _rc {
         quietly findfile _jwselect_sa_iw_mata.do
         quietly do `"`r(fn)'"'
@@ -101,7 +101,7 @@ program define jwselect_sa_iw, eclass
     ereturn local jw_restriction_scale "cohort_outcome_contrast"
     ereturn local cmd "jwselect_sa_iw"
     ereturn local cmdline `"jwselect_sa_iw `original0'"'
-    ereturn local version "0.9.0"
+    ereturn local version "0.9.1"
     ereturn local predict "jwselect_p"
     ereturn local marginsnotok "_ALL"
     capture noisily signestimationsample `y' `ivar' `tvar' `gvar'

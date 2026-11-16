@@ -1,5 +1,5 @@
 {smcl}
-{* *! jwselect 0.9.0 04nov2026}{...}
+{* *! jwselect 0.9.1 16nov2026}{...}
 {title:jwselect_sa_iw -- Population-share Sun-Abraham target}
 
 {title:Syntax}

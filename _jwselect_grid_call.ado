@@ -1,4 +1,4 @@
-*! jwselect 0.9.0 04nov2026
+*! jwselect 0.9.1 16nov2026
 program define _jwselect_grid_call
     version 16.1
     args h vh cross actions masks sigma penalty control result scorecov

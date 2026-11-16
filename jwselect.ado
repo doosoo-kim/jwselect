@@ -1,4 +1,4 @@
-*! jwselect 0.9.0 04nov2026
+*! jwselect 0.9.1 16nov2026
 program define jwselect, eclass
     version 16.1
     if "`e(cmd)'" == "jwselect" {
@@ -336,7 +336,7 @@ program define _jwselect_work, eclass
     // Check the entry point as well as the completion/version marker.
     capture mata: assert(findexternal("jw_stata()") != NULL)
     local entryrc = _rc
-    capture mata: assert(jw_version() == "0.9.0" & jw_build() == "0.9.0-20261104")
+    capture mata: assert(jw_version() == "0.9.1" & jw_build() == "0.9.1-20261116")
     local versionrc = _rc
     if `entryrc' | `versionrc' {
         capture mata: assert(findexternal("jw_version()") != NULL)
@@ -358,7 +358,7 @@ program define _jwselect_work, eclass
         }
         capture mata: assert(findexternal("jw_stata()") != NULL)
         local entryrc = _rc
-        capture mata: assert(jw_version() == "0.9.0" & jw_build() == "0.9.0-20261104")
+        capture mata: assert(jw_version() == "0.9.1" & jw_build() == "0.9.1-20261116")
         local versionrc = _rc
         if `entryrc' | `versionrc' {
             di as err "The Mata loader ended without defining the complete jwselect module"
@@ -376,7 +376,7 @@ program define _jwselect_work, eclass
         di as txt "Computing focused reselection inference (numerical search and independent simulation)..."
     }
     if `bootstrap' di as txt "Computing centered WBIC bootstrap interval (`wbicengine', `reps' draws)..."
-    if `mc' di as txt "Computing certified McCloskey intervals from the conditional score..."
+    if `mc' di as txt "Computing McCloskey intervals with continuum calibration and numerical padding..."
     tempname outpwdiag outgrid outprofile outterminal
     mata: jw_stata()
     if `"`prepare'"'!="" {
@@ -525,8 +525,8 @@ program define _jwselect_work, eclass
     ereturn local cmdline `"jwselect `0'"'
     ereturn local estat_cmd jwselect_estat
     ereturn local predict jwselect_p
-    ereturn local version 0.9.0
-    ereturn local build 0.9.0-20261104
+    ereturn local version 0.9.1
+    ereturn local build 0.9.1-20261116
     ereturn local cmd jwselect
     _jwselect_display, `nocohort' `celleffects'
 end

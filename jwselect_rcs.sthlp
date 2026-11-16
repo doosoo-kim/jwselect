@@ -1,5 +1,5 @@
 {smcl}
-{* *! jwselect 0.9.0 04nov2026}{...}
+{* *! jwselect 0.9.1 16nov2026}{...}
 {title:Title}
 {p 4 4 2}{cmd:jwselect_rcs} -- Doubly robust DiD inputs for repeated cross sections allowing changing composition
 
@@ -18,8 +18,9 @@
 {p 4 4 2}
 Each invocation fixes one cohort g and one post-treatment date s. Never-treated
 observations have gvar=0. The target is the ATT for the treated population
-observed at date s, conditional on G=g and R=s. All preperiod and control
-conditional means are standardized to that same target covariate distribution.
+observed at date s, conditional on G=g and R=s. All required cohort-date outcome
+means are standardized to that same target covariate distribution. These
+standardized means are called transported means.
 The distribution of (G,X) can change over dates; stationarity is not imposed.
 
 {p 4 4 2}
@@ -30,7 +31,7 @@ trends. No anticipation at every included treated preperiod must hold after
 standardization to the target covariate distribution. Conditional no
 anticipation within each treated preperiod source cell is sufficient;
 zero average anticipation under that source cell's own covariate distribution
-alone need not remain zero after transport. This requirement applies to the
+alone need not remain zero after this standardization. This requirement applies to the
 maintained baseline and each included optional preperiod. It does not permit
 arbitrary outcome-selective sampling. Maintain representative independent
 cross-sectional observations, unaffected covariates, and common support
@@ -131,7 +132,8 @@ e(rcs_sampling) records pooled or stratified sampling.
 {title:Reference}
 {p 4 4 2}
 Sant'Anna and Xu, {browse "https://arxiv.org/abs/2304.13925":Difference-in-Differences with Compositional Changes}.
-The implemented multivariate preperiod construction transports every cell to
-one fixed post-treated target; its finite-dimensional nuisance sandwich is
+The implemented multivariate preperiod construction standardizes every cohort-date
+outcome mean to the covariate distribution of one fixed treated postperiod population;
+its finite-dimensional nuisance sandwich is
 derived in the accompanying manuscript. The code does not implement the paper's
 nonparametric or cross-fitting estimators.

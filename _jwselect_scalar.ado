@@ -1,4 +1,4 @@
-*! jwselect 0.9.0 04nov2026: scalar target adapter with full joint influence covariance
+*! jwselect 0.9.1 16nov2026: scalar target adapter with full joint influence covariance
 program define _jwselect_scalar, rclass
     version 16.1
     syntax [, VCE(string)]
@@ -57,6 +57,6 @@ program define _jwselect_scalar, rclass
     return local sourcecmd `"`e(cmdline)'"'
     return local method `"`e(method)'"'
     return local model scalar_target
-    return local sourceversion 0.9.0
+    return local sourceversion 0.9.1
     return local upstream_stat z
 end

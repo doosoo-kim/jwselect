@@ -1,4 +1,4 @@
-// Run after installing jwselect 0.9.0. No external first-stage package needed.
+// Run after installing jwselect 0.9.1. No external first-stage package needed.
 version 17
 clear all
 set more off

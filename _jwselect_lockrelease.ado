@@ -1,4 +1,4 @@
-*! jwselect 0.9.0 04nov2026
+*! jwselect 0.9.1 16nov2026
 program define _jwselect_lockrelease, rclass
     version 17.0
     * Internal API: call only for a directory acquired by this process.

@@ -1,4 +1,4 @@
-*! jwselect 0.9.0 04nov2026: validated Sun-Abraham fitting wrapper
+*! jwselect 0.9.1 16nov2026: validated Sun-Abraham fitting wrapper
 program define jwselect_sa, eclass
     version 16.1
     if replay() {
@@ -325,7 +325,7 @@ program define _jwselect_sa_fit, eclass
     ereturn local sa_contract "0.6.0-sa1"
     ereturn local sa_weight_scope "fixed"
     ereturn local cmd "jwselect_sa"
-    ereturn local version "0.9.0"
+    ereturn local version "0.9.1"
     // Empty e(predict)/e(estat_cmd) would invoke Stata's generic defaults on
     // regression columns whose generated variables no longer exist.
     ereturn local predict "jwselect_p"

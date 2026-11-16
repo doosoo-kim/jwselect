@@ -1,4 +1,4 @@
-*! jwselect 0.9.0 04nov2026: composition-robust RCS input adapter
+*! jwselect 0.9.1 16nov2026: composition-robust RCS input adapter
 program define _jwselect_rcs, rclass
     version 16.1
     syntax [, VCE(string)]
@@ -56,7 +56,7 @@ program define _jwselect_rcs, rclass
     return local gvar "`e(rcs_gvar)'"
     return local sourcecmd `"`e(cmdline)'"'
     return local sourcevce "robust"
-    return local sourceversion "0.9.0"
+    return local sourceversion "0.9.1"
     return local sourceestimator "jwselect_rcs"
     return local vce "supplied"
     return local model "rcs"

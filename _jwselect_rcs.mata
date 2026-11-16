@@ -1,4 +1,4 @@
-*! jwselect 0.9.0 04nov2026: transported cell AIPW scores and full sandwich
+*! jwselect 0.9.1 16nov2026: transported cell AIPW scores and full sandwich
 version 16.1
 mata:
 mata set matastrict on
@@ -178,5 +178,5 @@ void jwrcs_fit(string scalar yname, string scalar onames, string scalar pnames,
     st_matrix(diagname,diagnostics)
 }
 // Completion marker is last so a partially compiled module is never reused.
-string scalar jwrcs_version() return("0.9.0")
+string scalar jwrcs_version() return("0.9.1")
 end

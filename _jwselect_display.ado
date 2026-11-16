@@ -1,4 +1,4 @@
-*! jwselect display 0.9.0 04nov2026
+*! jwselect display 0.9.1 16nov2026
 program define _jwselect_display
     version 16.1
     syntax [, NOCohort CELLEffects]
@@ -33,7 +33,7 @@ program define _jwselect_display
     if "`e(aggregate)'" == "equalcell" local agg "Uniform weights across post cells"
     if "`e(aggregate)'" == "custom" local agg "User-specified fixed cell weights"
     if `scalarinput' local agg "Population target fixed in source fit"
-    local inf "Pointwise oracle normal inference"
+    local inf "Pointwise asymptotic normal inference"
     if "`e(inference)'" == "fixed_restrictions" local inf "Normal; fixed restrictions"
     if "`e(inference)'" == "envelope" local inf "Conservative Gaussian envelope"
     if "`e(inference)'" == "reselect" local inf "Two-step numerical reselection"
@@ -143,8 +143,12 @@ program define _jwselect_display
                 di as txt "Inspect the terminal normal score and width with estat inference."
             }
             di as txt "McCloskey calibration reports CIs; calibrated p-values are not supplied."
+            di as txt "The compatibility label certified does not denote a formal floating-point certificate."
         }
-        else if "`e(wbicmethod)'"=="bootstrap" di as txt "Studentized reselection about the observed WBIC estimate. Coverage justification is pointwise."
+        else if "`e(wbicmethod)'"=="bootstrap" {
+            di as txt "Studentized reselection about the observed WBIC estimate. Coverage justification is pointwise."
+            di as txt "A fixed number of Gaussian draws gives a numerical quantile approximation."
+        }
         di as txt "Reported SEs and e(V) are fixed-selection diagnostics. Use e(ci) for interval inference."
         di as txt "Intervals are marginal. Gaussian approximation and regularity conditions apply."
         di as txt "See estat inference for method-specific diagnostics."
@@ -171,6 +175,7 @@ program define _jwselect_display
         _jwselect_periods, aggregate
     }
     if "`e(aggregate)'" == "custom" di as txt "Custom weights apply to cells; the aggregate need not average displayed cohort summaries."
+    if !`scalarinput' di as txt "Use estat compare for matched baseline, own-cohort, and joint MD estimates."
     if "`celleffects'" != "" jwselect_estat cells
 end
 

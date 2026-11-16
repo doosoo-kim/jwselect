@@ -1,5 +1,5 @@
 {smcl}
-{* *! jwselect 0.9.0 04nov2026}{...}
+{* *! jwselect 0.9.1 16nov2026}{...}
 {title:jwselect -- Select preperiod restrictions after csdid, jwdid, or Sun-Abraham}
 
 {p 4 4 2}
@@ -37,18 +37,29 @@ The main command requires Stata 16.1 or later. Prepared workers and collection r
 {p 8 12 2}
 {cmd:estat pretrend} [{cmd:,} {opt selected} {opt prematrix(P)} {opt output(#)}]
 
+{p 8 12 2}
+{cmd:estat compare} [{cmd:,} {opt cells} {opt output(#)}]
+
 {title:Description}
 
 {p 4 4 2}
 The command obtains the unaggregated cohort-time margins and their complete
 joint covariance, forms baseline treatment-effect contrasts and optional
 preperiod contrasts, selects restrictions, and performs minimum-distance (MD)
-adjustment. It stores complete joint fixed-selection covariance matrices.
+adjustment. It stores complete joint covariance matrices calculated by treating
+the selected restrictions as fixed.
 It reads unaggregated {cmd:csdid} results or joint {cmd:jwdid estat attgt}
 margins, or validated Sun-Abraham inputs from {help jwselect_sa}.
 The scalar sources {help jwselect_rcs} and {help jwselect_sa_iw} instead supply
 one prespecified population target, optional preperiod moments, and their
 complete joint covariance. Already aggregated {cmd:estat event} vectors are not supported.
+
+{p 4 4 2}
+This release documents the manuscript dated November 16, 2026. Retain the
+maintained baseline estimate as a reference and report MD estimates alongside
+it. Asymptotic efficiency improvement does not guarantee finite-sample
+improvement for an unknown data-generating process. {cmd:estat compare}
+provides a matched baseline, own-cohort MD, and joint MD comparison.
 
 {p 4 4 2}
 The baseline is g-gap*(1+delta) with {cmd:baseline(cohort)} (default), or
@@ -164,9 +175,10 @@ from {cmd:csdid}'s value, and an explicit value must match it.
 {p 4 4 2}
 Run {cmd:jwselect_rcs y x1 x2, tvar(time) gvar(first_treat) cohort(g) target(s) baseline(b)}
 before {cmd:jwselect}. The target is the ATT for cohort g's treated population
-observed at date s. Source-cell outcomes are transported to that target's
-covariate distribution, allowing the distributions of cohort and covariates
-to change over time. Each source cell uses an outcome regression and a
+observed at date s. Cohort-date outcome means are standardized to that target's
+covariate distribution; these standardized means are called transported means.
+The distributions of cohort and covariates may change over time.
+Each source cell uses an outcome regression and a
 normalized target-to-source density ratio; the DR union requires either its
 outcome regression or its ratio model to be correct. All target, nuisance
 and normalization contributions enter the joint influence covariance.
@@ -289,8 +301,8 @@ Joint WBIC can select different restrictions than cohort-wise WBIC.
 
 {p 4 4 2}
 {cmd:select(focused)} minimizes FMSC = v0 - 2*gain + adjustment^2 in the
-sampling-covariance scale. This equals the asymptotic-covariance score
-divided by N; it gives the same minimizer. The squared bias correction is
+sampling-covariance scale. This equals the estimated asymptotic mean squared
+error (AMSE) criterion divided by N; it gives the same minimizer. The squared bias correction is
 untruncated. Exact focused-score ties favor fewer restrictions, then the first stored candidate among equal sizes. Generated and custom
 local families put baseline-only first; a supplied jointmatrix() retains its
 first-occurrence row order and prepends baseline-only only if absent.
@@ -339,6 +351,64 @@ there is no truncation or greedy approximation. For K_g eligible optional dates 
 Cartesian family has product(K_g+1) nested configurations or 2^sum(K_g)
 all-subset configurations. The joint cap can bind even when every local
 family is below maxcand(). Explicit candidate loading storage can be substantial.
+
+{p 4 4 2}
+The November 16, 2026 manuscript's empirical workflow uses cohort-wise
+all-subsets selection. Specify {cmd:wbicscope(cohort) candidates(all) maxcand(16384)}
+to allow up to 14 eligible optional dates per cohort (2^14 candidates,
+including the empty set). This differs from the computational defaults,
+{cmd:candidates(nested) maxcand(4096)}. A larger family requires a larger
+explicit cap; this choice does not change the final joint-MD step.
+
+{title:Matched baseline, own-cohort, and joint MD comparison}
+
+{p 4 4 2}
+{cmd:estat compare} holds the selected restrictions, target definitions,
+aggregation weights, and supplied covariance fixed. The baseline estimate
+uses no optional restrictions. Own-cohort MD adjusts each cohort's effects
+using only its own part of the selected mask. Joint MD adjusts those effects
+using the full mask and cross-cohort covariance. No selection is rerun.
+The aggregate variance for own-cohort MD retains cross-cohort covariance;
+it is not the sum of isolated cohort variances.
+
+{p 4 4 2}
+By default the table follows {cmd:e(output_map)}. {cmd:output(#)} selects
+one row of that map. {cmd:cells} instead compares the primary cohort-time
+cell system and returns {cmd:r(postmap)}. The two options are mutually
+exclusive. The scalar population sources {cmd:jwselect_rcs} and
+{cmd:jwselect_sa_iw} do not supply a cohort decomposition and are rejected.
+
+{p 4 4 2}
+For manual and WBIC selection, all outputs use the same selected union.
+For cohort-focused primary results, the joint comparison uses the union
+of cohort selections; the own-cohort comparison uses each cohort's slice.
+A separately aggregate-focused row uses its own selected joint mask for
+both comparisons. Thus focused rows may use different masks. Comparing
+these estimates does not extend focused inference guarantees to another
+reporting target or to the new joint counterpart.
+
+{p 4 4 2}
+The columns of {cmd:r(table)} are {cmd:baseline se_baseline own se_own joint se_joint}
+{cmd:own_minus_base joint_minus_base joint_minus_own}. All standard errors
+are calculated by treating the selected restrictions as fixed. They are
+descriptive diagnostics, not selection-adjusted inference or tests of
+estimator differences.
+The command does not produce confidence intervals or p-values. Existing
+{cmd:e(ci)} and {cmd:e(pvalue)} remain attached to the original estimator
+and inference method; do not transfer them to another comparison column.
+Neither the variance comparison nor the direction of an estimate's change
+guarantees greater accuracy in finite samples.
+
+{p 4 4 2}
+Saved matrices include {cmd:r(V_baseline)}, {cmd:r(V_own)}, {cmd:r(V_joint)},
+{cmd:r(loading_baseline)}, {cmd:r(loading_own)}, {cmd:r(loading_joint)},
+and {cmd:r(selection)} when K>0. The mask columns follow {cmd:e(hmap)}.
+The map is {cmd:r(output_map)} for reported outputs and {cmd:r(postmap)}
+for cells. {cmd:r(output)} records the requested output number (0 for all),
+{cmd:r(cells)} is 1 for cell output, and {cmd:r(inference)} is
+{cmd:fixed_selection_diagnostics}. The command preserves the active estimation results, data,
+and RNG state. Copy the required r() matrices before running another
+postestimation command.
 
 {title:Joint pretrend tests}
 
@@ -408,24 +478,30 @@ contrasts are outside this initial averaging interface.
 
 {p 4 4 2}
 Manual selection reports normal intervals under the fixed restrictions.
-By default, Wald-BIC reports an ordinary pointwise normal interval using the selected
-model. To request a marginal selection-adjusted interval, specify
+By default, Wald-BIC reports an ordinary pointwise normal interval treating the
+selected restrictions as fixed. To request a marginal selection-adjusted interval, specify
 {cmd:inference(wbic)} and explicitly choose one of the following methods.
 Both retain the ordinary WBIC point estimate. Use {cmd:estat inference}
 to inspect the intervals and method-specific diagnostics.
 
 {p 4 4 2}
-{cmd:wbicmethod(bootstrap)} reselects preperiods in the fitted Gaussian experiment
-and uses a centered, studentized error statistic. This is a pointwise refinement.
+{cmd:wbicmethod(bootstrap)} implements centered Gaussian bootstrap reselection:
+each draw from the fitted Gaussian experiment repeats preperiod selection and
+MD estimation, using a centered, studentized error statistic. This numerically approximates
+a pointwise asymptotic construction; no higher-order accuracy improvement
+is asserted. A fixed number of draws leaves quantile simulation error and
+does not by itself satisfy a vanishing numerical-error condition. Increase
+draws and examine numerical sensitivity. This is not a uniform or finite-sample
+coverage guarantee.
 {cmd:wbicengine(integrated)} is the default; {cmd:wbicengine(direct)} uses direct
 Gaussian simulation. {cmd:reps()} and {cmd:seed()} set the simulation budget and seed.
 
 {p 4 4 2}
 {cmd:wbicmethod(mc)} uses the smallest candidate probability level that passes the
-McCloskey rejection-risk bound in the fitted Gaussian experiment.
+McCloskey rejection-probability bound in the fitted Gaussian experiment.
 {cmd:mcsteps(9)} sets the number of candidate levels. {cmd:mcrefine} optionally
-searches for a lower certifiable level. The calibration allowance is
-{cmd:delta=mcerr()/2} with positive risk target
+searches for a lower level satisfying this bound. The calibration allowance is
+{cmd:delta=mcerr()/2} with positive rejection-probability target
 {cmd:1-level()/100-delta}. McCloskey does not use {cmd:gamma()}.
 When no search level passes, the default {cmd:mcfallback(terminal)} returns
 the analytic terminal interval in the same family.
@@ -437,15 +513,22 @@ Stata matrices have no signed infinity representation, its {cmd:e(ci)} endpoints
 are missing and {cmd:e(mc_terminal_diagnostics)} records {cmd:unbounded=1}.
 
 {p 4 4 2}
-The uniform asymptotic coverage result requires regular sampling inputs and
-outward numerical error control. Risk bounds are evaluated in double precision
+The uniform asymptotic coverage result requires the stated regularity conditions
+and rejection-probability bounds that remain conservative after numerical
+approximation and rounding. These bounds are evaluated in double precision
 with numerical padding. This implementation does not supply a formal
 interval-arithmetic certificate for all floating-point operations.
+The retained {cmd:mcmode(certified)} option and diagnostic labels refer to
+the implemented Gaussian calibration route. They are compatibility labels,
+not a claim that conservative bounds have been formally verified for every
+floating-point operation. Monte Carlo error allocation and numerical roundoff control
+are distinct requirements.
 
 {p 4 4 2}
 Read the reported endpoints from {cmd:e(ci)} or {cmd:e(table)}. The adjusted
 methods report no adjusted p-values. Displayed standard errors and {cmd:e(V)}
-describe the fixed-selection fit. {cmd:inferoutputs()} limits adjusted inference
+are calculated by treating the selected restrictions as fixed.
+{cmd:inferoutputs()} limits adjusted inference
 to specified rows of {cmd:e(output_map)}.
 
 {title:Focused inference}
@@ -459,6 +542,14 @@ aggregate-focused cohort rows use the aggregate's selection rule, and custom
 weighted aggregates of cohort-focused estimates retain each cohort's original
 selection rule. Aggregates are formed within each draw before taking quantiles,
 preserving cross-cohort covariance.
+
+{p 4 4 2}
+When selection and reporting targets differ, the cross-target extension
+requires additional regularity, including the stated condition on limiting
+ties of selection scores and reporting adjustments. The software does not
+automatically verify that condition. The existence of a computed interval
+does not establish it. See the full guide's cross-target extension before
+interpreting such intervals as an application of its coverage result.
 
 {p 4 4 2}
 The two-step procedure builds an ellipsoid for the precontrast nuisance mean
@@ -503,11 +594,13 @@ bands, and rely on the joint Gaussian/local asymptotic approximation and the
 supplied covariance; they are not finite-sample guarantees.
 
 {p 4 4 2}
-All displayed SEs are labeled {cmd:se_fixed}. Under focused selection they are
-fixed-action diagnostics, not standard errors for a normal approximation to
-the selected estimator. Accordingly, focused results post e(b) without e(V).
-Use e(ci) and e(pvalue). e(V_fixed) and e(V_cells) preserve the joint
-fixed-selection covariance for diagnostics; do not pass them to conventional
+All displayed standard errors are labeled {cmd:se_fixed}. Under focused selection
+they are diagnostics calculated by treating the selected restrictions as fixed,
+not standard errors for a normal approximation to the selected estimator.
+Accordingly, focused results post e(b) without e(V).
+Use e(ci) and e(pvalue). e(V_fixed) and e(V_cells) preserve the joint covariance
+calculated by treating the selected restrictions as fixed for diagnostics;
+do not pass them to conventional
 {cmd:lincom}, {cmd:test}, or {cmd:margins} as selection-adjusted covariance.
 No single covariance matrix characterizes the focused estimator's nonnormal
 selection distribution. Observation-level {cmd:predict} is deliberately undefined.
@@ -520,7 +613,8 @@ not cohort dates or event times. It supports focused selection with
 {cmd:inference(none)}, {cmd:auto}, or {cmd:reselect}, and WBIC selection with
 {cmd:inference(wbic)}. Without it, inference is
 requested for every output. Unrequested outputs retain point estimates and
-fixed-selection covariance but have missing intervals and p-values. Use this
+covariance calculated by treating the selected restrictions as fixed, but have
+missing intervals and p-values. Use this
 option to avoid an unused aggregate's numerical inference. {cmd:nocohort}
 changes display only. {cmd:focus(cohort)} also avoids asking for separate
 aggregate-focused point selection when that estimator is not needed.
@@ -607,6 +701,9 @@ McCloskey stores {cmd:e(mc_diagnostics)}, {cmd:e(mc_profile_diagnostics)},
 {cmd:baseline_halfwidth}. The terminal uses {cmd:epsilon=1e-6}. Its {cmd:pstar}
 is stored missing because its probability may round to one. Retain {cmd:k_safe}
 when interpreting that return.
+The stored diagnostic column names {cmd:risk_upper} and {cmd:risk_target}
+remain unchanged for compatibility; they denote the rejection-probability
+upper bound and its calibration target.
 The {cmd:mc_diagnostics} status is 0 for calibration, 1 for an unrequested output,
 2 for no-restriction normal inference, 7 for the analytic terminal and 8 for
 the exceptional whole-line return. The {cmd:rule_fallback} column identifies
@@ -645,9 +742,9 @@ e(source_version), e(source_method), e(source_model), and e(restriction_scale).
 The source estimator is matrix, csdid, jwdid, eventstudyinteract, jwselect_rcs,
 or jwselect_sa_iw. e(source_version) is empty
 when the source does not expose a verified version, including jwdid; retain
-{cmd:which jwdid} output separately. e(version) is {cmd:0.9.0} and
-e(build) is {cmd:0.9.0-20261104}. The exact build distinguishes this release
-from an archived development branch using the same public version.
+{cmd:which jwdid} output separately. e(version) is {cmd:0.9.1} and
+e(build) is {cmd:0.9.1-20261116}. The exact build identifies the numerical
+modules and guards against mixing releases in one session.
 Start a fresh Stata session and recreate prepared jobs after upgrading.
 
 {p 4 4 2}
@@ -691,6 +788,9 @@ With no eligible leads, index matrices are absent and both counts are zero.
 {phang2}{cmd:csdid y x1 x2, ivar(id) time(year) gvar(first_treat) method(dr) nevertreated base_period(universal) analytical pointwise pscoretrim(1) cluster(id)}
 {phang2}{cmd:estimates store CS_SOURCE}
 {phang2}{cmd:jwselect, select(wbic) postwindow(0 2)}
+{phang2}{cmd:estat compare}
+{phang2}{cmd:matrix comparison = r(table)}
+{phang2}{cmd:estat compare, cells}
 {phang2}{cmd:estimates restore CS_SOURCE}
 {phang2}{cmd:jwselect, select(manual) postwindow(0 2)}
 
@@ -737,3 +837,16 @@ families can make these checks expensive.
 {p 4 4 2}
 A self-contained matrix-input example is in {cmd:examples/matrix_demo.do}
 in the downloaded package.
+
+{p 4 4 2}
+For an explicit all-subsets, cohort-wise WBIC comparison with centered
+Gaussian reselection, retain the same prespecified event window in all
+steps. This template illustrates the manuscript's workflow; its window,
+baseline, anticipation and covariance must be chosen for the application.
+It does not automatically reproduce the manuscript's empirical targets.
+
+{phang2}{cmd:estimates restore original}
+{phang2}{cmd:jwselect, select(wbic) wbicscope(cohort) candidates(all) maxcand(16384) postwindow(0 2) inference(wbic) wbicmethod(bootstrap) reps(49999) seed(12345)}
+{phang2}{cmd:estat compare}
+{phang2}{cmd:matrix comparison = r(table)}
+{phang2}{cmd:estat inference}

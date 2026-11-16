@@ -1,0 +1,325 @@
+---------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  C:\Users\Doosoo Kim\.codex\.chatgpt-projects\g-p-69c8467101ec8191a7f
+> ab64862d18faf\output\jwselect-0.9.1\tests/sa_population.log
+  log type:  text
+ opened on:  16 Nov 2026, 13:31:16
+
+. adopath ++ "."
+  [1]              "."
+  [2]              "C:/Users/Doosoo Kim/.codex/.chatgpt-projects/g-p-69c8467101ec
+> 8191a7fab64862d18faf/output/jwselect-0.9.1"
+  [3]  (BASE)      "C:\Program Files\Stata17\ado\base/"
+  [4]  (SITE)      "C:\Program Files\Stata17\ado\site/"
+  [5]  (PERSONAL)  "C:\Users\Doosoo Kim\ado\personal/"
+  [6]  (PLUS)      "C:\Users\Doosoo Kim\ado\plus/"
+  [7]  (OLDPLACE)  "c:\ado/"
+
+. do _jwselect_sa_iw_mata.do
+
+. *! jwselect 0.9.1 16nov2026: population-share Sun-Abraham scalar inputs
+. version 16.1
+
+. mata:
+------------------------------------------------- mata (type end to exit) -------
+: 
+: void jw_sa_iw_error(string scalar s)
+> {
+>     errprintf("jwselect_sa_iw: %s\n",s)
+>     _error(3498)
+> }
+
+: 
+: /* Rows are complete independent panels, ordered by id and calendar time.
+>    The first joint coordinate is the population IW target; remaining
+>    coordinates are individual cohort/preperiod contrasts. Sampling V has
+>    no regression degrees-of-freedom multiplier. */
+: void jw_sa_iw_inputs(string scalar yvar, string scalar gvar,
+>     string scalar touse, real scalar nt, real scalar first,
+>     real rowvector window, real colvector requested, real scalar delta,
+>     string scalar baseline, string scalar dname, string scalar hname,
+>     string scalar vname, string scalar hmname, string scalar wname,
+>     string scalar twname, string scalar basename, string scalar targetmapname,
+>     string scalar kname, string scalar sharevname, string scalar fixedvname)
+> {
+>     real matrix raw,Y,H,IF,weights,targetweights
+>     real colvector G,groups,eligible,ci,gi,dd,psi,share,base,ns,dk
+>     real rowvector h
+>     real scalar n,j,g,t,b,lo,hi,k,pos,pK,d,w,muG,muC
+> 
+>     raw=st_data(.,(yvar,gvar),touse)
+>     n=rows(raw)/nt
+>     if (n!=floor(n) | n<=1) jw_sa_iw_error("invalid balanced panel")
+>     Y=colshape(raw[,1],nt)
+>     G=raw[(0::(n-1)):*nt:+1,2]
+>     groups=uniqrows(sort(select(G,G:>0),1))
+>     ci=selectindex(G:==0)
+>     if (length(ci)<2) jw_sa_iw_error("at least two never-treated units are requ
+> ired")
+>     eligible=select(groups,(groups:+window[1]:>=first):&
+>         (groups:+window[2]:<=first+nt-1))
+>     if (length(requested)) {
+>         if (rows(uniqrows(sort(requested,1)))!=rows(requested))
+>             jw_sa_iw_error("cohorts() must not repeat a cohort")
+>         for (j=1;j<=length(requested);j++) {
+>             if (sum(eligible:==requested[j])!=1)
+>                 jw_sa_iw_error("a requested cohort lacks the complete reporting
+>  window")
+>         }
+>         groups=requested
+>     }
+>     else groups=eligible
+>     if (!length(groups)) jw_sa_iw_error("no cohort supports the complete report
+> ing window")
+>     base=groups:-delta:-1
+>     if (baseline=="common") base=J(rows(groups),1,min(groups)-delta-1)
+>     if (min(base)<first) jw_sa_iw_error("a maintained baseline is outside obser
+> ved support")
+>     H=J(0,2,.)
+>     weights=J(rows(groups),5,.)
+>     targetweights=J(0,3,.)
+>     ns=J(rows(groups),1,.)
+>     dk=J(rows(groups),1,.)
+>     for (j=1;j<=rows(groups);j++) {
+>         g=groups[j]
+>         ns[j]=sum(G:==g)
+>         if (ns[j]<2) jw_sa_iw_error("each included cohort needs at least two un
+> its")
+>         for (t=first;t<g-delta;t++) if (t!=base[j]) H=H\(g,t)
+>     }
+>     k=rows(H)
+>     pK=sum(ns)/n
+>     IF=J(n,k+1,0)
+>     h=J(1,k,0)
+>     psi=J(n,1,0)
+>     share=J(n,1,0)
+>     d=0
+>     pos=0
+>     for (j=1;j<=rows(groups);j++) {
+>         g=groups[j]
+>         gi=selectindex(G:==g)
+>         b=base[j]-first+1
+>         lo=g+window[1]-first+1
+>         hi=g+window[2]-first+1
+>         dd=rowsum(Y[,lo..hi])/(hi-lo+1)-Y[,b]
+>         muG=mean(dd[gi]); muC=mean(dd[ci])
+>         dk[j]=muG-muC
+>         w=ns[j]/sum(ns)
+>         d=d+w*dk[j]
+>         psi[gi]=psi[gi]+w*n/ns[j]:*(dd[gi]:-muG)
+>         psi[ci]=psi[ci]-w*n/length(ci):*(dd[ci]:-muC)
+>         weights[j,.]=(g,ns[j],ns[j]/n,w,dk[j])
+>         for (t=lo;t<=hi;t++) targetweights=targetweights\(g,t+first-1,w/(hi-lo+
+> 1))
+>         for (t=first;t<g-delta;t++) {
+>             if (t==base[j]) continue
+>             pos++
+>             dd=Y[,t-first+1]-Y[,b]
+>             muG=mean(dd[gi]); muC=mean(dd[ci])
+>             h[pos]=muG-muC
+>             IF[gi,pos+1]=n/ns[j]:*(dd[gi]:-muG)
+>             IF[ci,pos+1]=-n/length(ci):*(dd[ci]:-muC)
+>         }
+>     }
+>     /* d(weights)/dP contributes this term. Keeping the whole IF retains
+>        all cross terms; no orthogonality is assumed by the calculation. */
+>     for (j=1;j<=rows(groups);j++) {
+>         gi=selectindex(G:==groups[j])
+>         share[gi]=J(length(gi),1,(dk[j]-d)/pK)
+>     }
+>     IF[,1]=psi+share
+>     st_matrix(dname,d)
+>     st_matrix(hname,h)
+>     st_matrix(vname,quadcross(IF,IF)/n^2)
+>     st_matrix(hmname,H)
+>     st_matrix(wname,weights)
+>     st_matrix(twname,targetweights)
+>     st_matrix(basename,(groups,base))
+>     st_matrix(targetmapname,(groups[1],groups[1]+window[1]))
+>     st_numscalar(kname,k)
+>     st_numscalar(sharevname,quadcross(share,share)/n^2)
+>     st_numscalar(fixedvname,quadcross(psi,psi)/n^2)
+> }
+
+: 
+: string scalar jw_sa_iw_version() return("0.9.1")
+
+: end
+---------------------------------------------------------------------------------
+
+. 
+end of do-file
+
+. set obs 600
+Number of observations (_N) was 0, now 600.
+
+. generate long id=_n
+
+. generate byte g=cond(_n<=300,0,cond(_n<=500,4,6))
+
+. set seed 20261104
+
+. generate double u=rnormal()
+
+. expand 8
+(4,200 observations created)
+
+. bysort id: generate byte t=_n
+
+. generate double y=u+.1*t+(g==4 & t>=4)*1+(g==6 & t>=6)*3+rnormal()
+
+. generate byte sample=1
+
+. sort id t
+
+. mata: jw_sa_iw_inputs("y","g","sample",8,1,(0,2),J(0,1,.),0,"cohort", "D","H","
+> V","HM","W","TW","BASES","TARGETMAP","K","SV","FV")
+
+. assert scalar(K)==6
+
+. mata:
+------------------------------------------------- mata (type end to exit) -------
+: W=st_matrix("W"); V=st_matrix("V")
+
+: assert(max(abs(W[,4]-(2/3\1/3)))<1e-12)
+
+: assert(abs(st_matrix("D")-W[,4]'*W[,5])<1e-12)
+
+: assert(abs(V[1,1]-st_numscalar("SV")-st_numscalar("FV"))<1e-12)
+
+: assert(st_numscalar("SV")>0)
+
+: /* Independent multinomial delta-method variance of estimated shares. */
+: p=W[,3]; w=W[,4]; d=W[,5]; psi=w'*d
+
+: vshare=sum(p:*(d:-psi):^2)/sum(p)^2/600
+
+: assert(abs(vshare-st_numscalar("SV"))<1e-12)
+
+: assert(rows(st_matrix("HM"))==6)
+
+: assert(rows(st_matrix("TW"))==6)
+
+: assert(abs(sum(st_matrix("TW")[,3])-1)<1e-12)
+
+: assert(min(symeigenvalues(V))>0)
+
+: end
+---------------------------------------------------------------------------------
+
+. display "PASS SA population: heterogeneous shares and complete joint covariance
+> ."
+PASS SA population: heterogeneous shares and complete joint covariance.
+
+. 
+. // A singleton supported cohort has no aggregation-share uncertainty.
+. mata: jw_sa_iw_inputs("y","g","sample",8,1,(0,4),J(0,1,.),0,"cohort", "D","H","
+> V","HM","W","TW","BASES","TARGETMAP","K","SV","FV")
+
+. assert scalar(SV)==0
+
+. mata: assert(st_matrix("W")[1,1]==4 & rows(st_matrix("W"))==1)
+
+. display "PASS SA population: unsupported cohorts omitted, singleton shares fixe
+> d."
+PASS SA population: unsupported cohorts omitted, singleton shares fixed.
+
+. 
+. // Explicit unsupported cohort fails instead of changing the user's target.
+. capture mata: jw_sa_iw_inputs("y","g","sample",8,1,(0,4),6,0,"cohort", "D","H",
+> "V","HM","W","TW","BASES","TARGETMAP","K","SV","FV")
+
+. assert _rc==3498
+
+. 
+. // Noiseless equal effects give exactly zero share uncertainty.
+. replace y=u+.1*t+(g>0 & t>=g)*2
+(4,800 real changes made)
+
+. mata: jw_sa_iw_inputs("y","g","sample",8,1,(0,2),J(0,1,.),0,"cohort", "D","H","
+> V","HM","W","TW","BASES","TARGETMAP","K","SV","FV")
+
+. assert scalar(SV)<1e-25
+
+. assert abs(D[1,1]-2)<1e-12
+
+. display "PASS SA population: homogeneous-effects limit."
+PASS SA population: homogeneous-effects limit.
+
+. 
+. // Full optional dependency integration: no install or update is attempted.
+. local absent 0
+
+. foreach cmd in eventstudyinteract reghdfe avar ftools {
+  2.     capture which `cmd'
+  3.     if _rc local absent 1
+  4. }
+
+. if `absent' {
+.     display "SKIP SA wrapper integration: optional dependencies absent."
+SKIP SA wrapper integration: optional dependencies absent.
+. }
+
+. else {
+.     replace y=u+.1*t+(g==4 & t>=4)*1+(g==6 & t>=6)*3+ ///
+>         (g==4 & t==1)*.4+rnormal()
+.     quietly jwselect_sa y, ivar(id) tvar(t) gvar(g)
+.     estimates store SA_SOURCE
+.     quietly jwselect_sa_iw, postwindow(0 2)
+.     assert "`e(cmd)'"=="jwselect_sa_iw"
+.     assert e(jw_nunits)==600
+.     assert e(iw_share_variance)>0
+.     assert e(N)==4800 & e(N_clusters)==600
+.     assert "`e(jw_contract)'"=="scalar_joint_0.9.0"
+.     mata: assert(rows(st_matrix("e(jw_V)"))==7)
+.     mata: assert(rows(st_matrix("e(jw_bases)"))==2)
+.     assert e(sample)==sample
+.     checkestimationsample
+.     display "PASS SA population source wrapper: signed sample and scalar contra
+> ct."
+.     estimates store IW_SOURCE
+.     matrix IW_D=e(jw_d)
+.     matrix IW_V=e(jw_V)
+.     quietly jwselect, select(manual)
+.     assert e(scalar_target)==1
+.     mata: assert(cols(st_matrix("e(b)"))==1)
+.     mata: assert(abs(st_matrix("e(b)")[1,1]-st_matrix("IW_D")[1,1])<1e-12)
+.     mata: assert(abs(st_matrix("e(V)")[1,1]-st_matrix("IW_V")[1,1])<1e-12)
+.     quietly estat design
+.     mata: assert(rows(st_matrix("r(postmap)"))==1)
+.     capture noisily estat cells
+.     assert _rc==198
+.     assert e(scalar_target)==1
+.     mata: assert(abs(st_matrix("e(b)")[1,1]-st_matrix("IW_D")[1,1])<1e-12)
+.     display "PASS SA scalar diagnostics: design labels and cell-output refusal.
+> "
+.     estimates restore IW_SOURCE
+.     quietly jwselect, select(wbic) candidates(all)
+.     assert e(scalar_target)==1
+.     assert e(K)==6
+.     estimates restore IW_SOURCE
+.     quietly jwselect, select(focused) candidates(all) inference(none)
+.     assert e(scalar_target)==1
+.     estimates restore IW_SOURCE
+.     quietly jwselect, select(wbic) candidates(all) inference(wbic) wbicmethod(b
+> ootstrap) reps(1999) seed(1704)
+.     assert e(scalar_target)==1
+.     mata: assert(rows(st_matrix("e(ci)"))==1 & !hasmissing(st_matrix("e(ci)")))
+.     display "PASS SA population: baseline, WBIC, focused and bootstrap scalar p
+> ipeline."
+.     estimates restore SA_SOURCE
+.     quietly jwselect_sa_iw, postwindow(0 2) cohorts(4) anticipation(2)
+.     assert e(jw_K)==0
+.     assert e(iw_share_variance)==0
+.     quietly jwselect, select(wbic)
+.     assert e(K)==0 & e(scalar_target)==1
+.     display "PASS SA population: empty optional-restriction scalar path."
+. }
+
+. log close
+      name:  <unnamed>
+       log:  C:\Users\Doosoo Kim\.codex\.chatgpt-projects\g-p-69c8467101ec8191a7f
+> ab64862d18faf\output\jwselect-0.9.1\tests/sa_population.log
+  log type:  text
+ closed on:  16 Nov 2026, 13:31:16
+---------------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-*! jwselect 0.9.0. Run after installing the package.
+*! jwselect 0.9.1. Run after installing the package.
 version 16.1
 set more off
 

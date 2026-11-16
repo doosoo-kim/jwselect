@@ -1,4 +1,4 @@
-*! jwselect 0.9.0 04nov2026: composition-robust repeated-cross-section DR inputs
+*! jwselect 0.9.1 16nov2026: composition-robust repeated-cross-section DR inputs
 program define jwselect_rcs, eclass
     version 16.1
     if replay() {
@@ -61,7 +61,7 @@ program define jwselect_rcs, eclass
     if `n'<=1 error 2000
     quietly findfile _jwselect_rcs.mata
     local mfile `"`r(fn)'"'
-    capture mata: assert(jwrcs_version()=="0.9.0")
+    capture mata: assert(jwrcs_version()=="0.9.1")
     if _rc {
         capture mata: mata drop jwrcs_*()
         quietly do `"`mfile'"'
@@ -121,7 +121,7 @@ program define jwselect_rcs, eclass
     ereturn scalar pscoretrim=1
     ereturn local cmd jwselect_rcs
     ereturn local cmdline `"`cmdline'"'
-    ereturn local version "0.9.0"
+    ereturn local version "0.9.1"
     ereturn local rcs_contract "0.9.0-composition1"
     ereturn local rcs_tvar "`tvar'"
     ereturn local rcs_gvar "`gvar'"

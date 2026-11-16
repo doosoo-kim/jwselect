@@ -1,4 +1,4 @@
-*! jwselect 0.9.0 04nov2026: population-share Sun-Abraham scalar inputs
+*! jwselect 0.9.1 16nov2026: population-share Sun-Abraham scalar inputs
 version 16.1
 mata:
 
@@ -113,5 +113,5 @@ void jw_sa_iw_inputs(string scalar yvar, string scalar gvar,
     st_numscalar(fixedvname,quadcross(psi,psi)/n^2)
 }
 
-string scalar jw_sa_iw_version() return("0.9.0")
+string scalar jw_sa_iw_version() return("0.9.1")
 end

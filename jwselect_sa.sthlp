@@ -1,5 +1,5 @@
 {smcl}
-{* *! jwselect 0.9.0 04nov2026}{...}
+{* *! jwselect 0.9.1 16nov2026}{...}
 {title:jwselect_sa -- Fit validated Sun-Abraham inputs for jwselect}
 
 {title:Syntax}

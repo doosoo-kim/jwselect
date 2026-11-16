@@ -1,0 +1,224 @@
+---------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  C:\Users\Doosoo Kim\.codex\.chatgpt-projects\g-p-69c8467101ec8191a7f
+> ab64862d18faf\output\jwselect-0.9.1\tests/nonlinear_index_release.log
+  log type:  text
+ opened on:  16 Nov 2026, 13:35:47
+
+. adopath ++ "."
+  [1]              "."
+  [2]              "C:/Users/Doosoo Kim/.codex/.chatgpt-projects/g-p-69c8467101ec
+> 8191a7fab64862d18faf/output/jwselect-0.9.1"
+  [3]  (BASE)      "C:\Program Files\Stata17\ado\base/"
+  [4]  (SITE)      "C:\Program Files\Stata17\ado\site/"
+  [5]  (PERSONAL)  "C:\Users\Doosoo Kim\ado\personal/"
+  [6]  (PLUS)      "C:\Users\Doosoo Kim\ado\plus/"
+  [7]  (OLDPLACE)  "c:\ado/"
+
+. set seed 184903
+
+. set obs 3600
+Number of observations (_N) was 0, now 3,600.
+
+. generate long id=ceil(_n/6)
+
+. generate byte time=mod(_n-1,6)+1
+
+. generate byte group=cond(mod(id,3)==0,0,cond(mod(id,3)==1,3,5))
+
+. generate double x=sin(id/8)+.2*(group==3)
+
+. generate double z=cos(id/11)-.1*(group==5)
+
+. generate double eta=-.5+.08*time+.2*x-.1*z+.2*(group==3)+ ///
+>     (.4+.15*x)*(group>0 & time>=group)
+
+. generate byte y=runiform()<invlogit(eta)
+
+. generate double yp=rpoisson(exp(eta))
+
+. foreach link in logit poisson {
+  2.     local yy y
+  3.     if "`link'"=="poisson" local yy yp
+  4.     foreach basis in centered raw {
+  5.         local xo
+  6.         if "`basis'"=="raw" local xo xasis
+  7.         quietly jwdid `yy' x z, ivar(id) tvar(time) gvar(group) ///
+>             never method(`link') cluster(id) `xo'
+  8.         estimates store NL_SOURCE
+  9.         matrix SOURCE_B=e(b)
+ 10.         matrix SOURCE_V=e(V)
+ 11.         local sourcecmd `"`e(cmdline)'"'
+ 12.         local sourcerng `"`c(rngstate)'"'
+ 13.         quietly datasignature
+ 14.         local sourcesig `"`r(datasignature)'"'
+ 15. 
+.         quietly _jwselect_index, vce(conditional)
+ 16.         assert r(N_index)==12
+ 17.         assert r(covariance_error)<2e-5
+ 18.         assert r(margins_error)<5e-5
+ 19.         assert "`r(restriction_scale)'"=="conditional_index"
+ 20.         matrix COND_B=r(bgt)
+ 21.         matrix COND_V=r(Vgt)
+ 22.         matrix COND_H=r(h)
+ 23.         matrix COND_VH=r(Vh)
+ 24.         quietly _jwselect_index, vce(unconditional)
+ 25.         mata: assert(mreldif(st_matrix("r(bgt)"),st_matrix("COND_B"))<1e-12)
+ 26.         mata: assert(mreldif(st_matrix("r(h)"),st_matrix("COND_H"))<1e-12)
+ 27.         mata: assert(mreldif(st_matrix("r(Vh)"),st_matrix("COND_VH"))<1e-12)
+ 28.         mata: assert(mreldif(st_matrix("r(Vgt)"),st_matrix("COND_V"))>1e-8)
+ 29.         mata: assert(mreldif(st_matrix("e(b)"),st_matrix("SOURCE_B"))==0)
+ 30.         mata: assert(mreldif(st_matrix("e(V)"),st_matrix("SOURCE_V"))==0)
+ 31.         assert `"`e(cmdline)'"'==`"`sourcecmd'"'
+ 32.         assert `"`c(rngstate)'"'==`"`sourcerng'"'
+ 33.         quietly datasignature
+ 34.         assert `"`r(datasignature)'"'==`"`sourcesig'"'
+ 35. 
+.         quietly jwselect, select(wbic) candidates(all) postwindow(0 1) inferenc
+> e(none)
+ 36.         assert "`e(restrictions)'"=="index"
+ 37.         assert "`e(restriction_scale)'"=="conditional_index"
+ 38.         assert e(K)==12 & e(K_blocks)==4
+ 39.         matrix DEFAULT_B=e(b)
+ 40.         matrix DEFAULT_V=e(V)
+ 41.         matrix DEFAULT_Z=e(z)
+ 42.         matrix DEFAULT_ZV=e(V_z)
+ 43.         matrix DEFAULT_S=e(selection)
+ 44.         quietly estat pretrend
+ 45.         assert r(df)==12
+ 46.         quietly estimates restore NL_SOURCE
+ 47.         quietly jwselect, restrictions(index) select(wbic) candidates(all) /
+> //
+>             postwindow(0 1) inference(none)
+ 48.         mata: assert(mreldif(st_matrix("e(b)"),st_matrix("DEFAULT_B"))==0)
+ 49.         mata: assert(mreldif(st_matrix("e(V)"),st_matrix("DEFAULT_V"))==0)
+ 50.         mata: assert(mreldif(st_matrix("e(z)"),st_matrix("DEFAULT_Z"))==0)
+ 51.         mata: assert(mreldif(st_matrix("e(V_z)"),st_matrix("DEFAULT_ZV"))==0
+> )
+ 52.         mata: assert(mreldif(st_matrix("e(selection)"),st_matrix("DEFAULT_S"
+> ))==0)
+ 53. 
+.         quietly estimates restore NL_SOURCE
+ 54.         quietly jwselect, select(focused) focus(aggregate) candidates(all) /
+> //
+>             postwindow(0 1) inference(none)
+ 55.         assert e(K)==12 & e(K_blocks)==4
+ 56.         matrix FOCUS_B=e(b)
+ 57.         matrix FOCUS_V=e(V_fixed)
+ 58.         matrix FOCUS_S=e(selection)
+ 59.         quietly estimates restore NL_SOURCE
+ 60.         quietly jwselect, restrictions(index) select(focused) focus(aggregat
+> e) ///
+>             candidates(all) postwindow(0 1) inference(none)
+ 61.         mata: assert(mreldif(st_matrix("e(b)"),st_matrix("FOCUS_B"))==0)
+ 62.         mata: assert(mreldif(st_matrix("e(V_fixed)"),st_matrix("FOCUS_V"))==
+> 0)
+ 63.         mata: assert(mreldif(st_matrix("e(selection)"),st_matrix("FOCUS_S"))
+> ==0)
+ 64.         if "`basis'"=="centered" {
+ 65.             matrix CENTER_B=e(b)
+ 66.             matrix CENTER_V=e(V_fixed)
+ 67.             matrix CENTER_H=e(index_b)
+ 68.             matrix CENTER_VH=e(V_index)
+ 69.             matrix CENTER_C=e(Cov_att_index)
+ 70.         }
+ 71.         else {
+ 72.             mata: assert(mreldif(st_matrix("e(b)"),st_matrix("CENTER_B"))<2e
+> -5)
+ 73.             mata: assert(mreldif(st_matrix("e(V_fixed)"),st_matrix("CENTER_V
+> "))<2e-5)
+ 74.             mata: assert(mreldif(st_matrix("e(index_b)"),st_matrix("CENTER_H
+> "))<2e-5)
+ 75.             mata: assert(mreldif(st_matrix("e(V_index)"),st_matrix("CENTER_V
+> H"))<2e-5)
+ 76.             mata: assert(mreldif(st_matrix("e(Cov_att_index)"),st_matrix("CE
+> NTER_C"))<2e-5)
+ 77.         }
+ 78.         display "PASS full-block source/default/focused covariance: `link' `
+> basis'."
+ 79.     }
+ 80. }
+PASS full-block source/default/focused covariance: logit centered.
+PASS full-block source/default/focused covariance: logit raw.
+PASS full-block source/default/focused covariance: poisson centered.
+PASS full-block source/default/focused covariance: poisson raw.
+
+. 
+. // Cancellation distinguishes the supported full-block null from the
+. // explicitly requested legacy placebo diagnostic; it is not a new theory.
+. clear
+
+. set seed 719451
+
+. set obs 600
+Number of observations (_N) was 0, now 600.
+
+. generate long id=_n
+
+. generate byte group=cond(id<=300,3,0)
+
+. generate double x=mod(id,3)-1
+
+. expand 4
+(1,800 observations created)
+
+. bysort id: generate byte time=_n
+
+. generate double probability=.5
+
+. replace probability=invlogit(x*ln(3)) if group==3 & time==1
+(200 real changes made)
+
+. replace probability=.75 if group==3 & time>=3
+(600 real changes made)
+
+. generate double orderdraw=runiform()
+
+. bysort group x time (orderdraw): generate byte y=_n<=round(_N*probability)
+
+. sort id time
+
+. quietly jwdid y x, ivar(id) tvar(time) gvar(group) never method(logit) cluster(
+> id)
+
+. estimates store CANCEL_SOURCE
+
+. quietly jwselect, select(wbic) candidates(all) inference(none)
+
+. assert e(K)==2 & e(K_blocks)==1
+
+. assert "`e(restrictions)'"=="index"
+
+. quietly estat pretrend
+
+. assert r(df)==2 & r(p)<.01
+
+. quietly estimates restore CANCEL_SOURCE
+
+. quietly jwselect, restrictions(placebo) select(wbic) candidates(all) inference(
+> none)
+
+. assert e(K)==1 & e(K_blocks)==1
+
+. assert "`e(restrictions)'"=="placebo"
+
+. assert "`e(restriction_scale)'"=="outcome_placebo"
+
+. quietly estat pretrend
+
+. assert r(df)==1 & r(p)>.99
+
+. display "PASS full-block default: cancelling conditional departures remain test
+> able."
+PASS full-block default: cancelling conditional departures remain testable.
+
+. display "NONLINEAR_INDEX_RELEASE_PASS"
+NONLINEAR_INDEX_RELEASE_PASS
+
+. log close
+      name:  <unnamed>
+       log:  C:\Users\Doosoo Kim\.codex\.chatgpt-projects\g-p-69c8467101ec8191a7f
+> ab64862d18faf\output\jwselect-0.9.1\tests/nonlinear_index_release.log
+  log type:  text
+ closed on:  16 Nov 2026, 13:36:13
+---------------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-*! jwselect 0.9.0 04nov2026
+*! jwselect 0.9.1 16nov2026
 version 16.1
 mata:
 
@@ -7335,13 +7335,13 @@ void jw_pretrend_stata()
 
 string scalar jw_build()
 {
-    return("0.9.0-20261104")
+    return("0.9.1-20261116")
 }
 
 /* Completion marker must be LAST: a partially compiled bridge is not ready. */
 string scalar jw_version()
 {
-    return("0.9.0")
+    return("0.9.1")
 }
 
 end

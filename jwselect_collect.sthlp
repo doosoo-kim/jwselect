@@ -1,5 +1,5 @@
 {smcl}
-{* *! jwselect 0.9.0 04nov2026}{...}
+{* *! jwselect 0.9.1 16nov2026}{...}
 {title:jwselect_collect -- Combine prepared focused-inference searches}
 
 {p 4 4 2}
@@ -60,7 +60,7 @@ returned matrices before another r-class command overwrites them.
 Diagnostic columns: output, objective, nactive, search_reps, validation_reps,
 evaluations, starts_used, converged_starts, budget_exhausted, search_value,
 validated_value, validation_gap, radius_fraction. The validated value is the
-independent empirical value before outward simulation correction. The final
+independent empirical value before the conservative correction for Monte Carlo error. The final
 bounds can use another objective's winning point because all four points are
 checked for all four quantities.
 
@@ -74,8 +74,9 @@ larger budgets and additional seeds. A budget-exhausted flag is not a Stata
 error or a budget overrun.
 
 {p 4 4 2}
-{cmd:se_fixed} is a fixed-selection diagnostic, not a selection-adjusted normal
-standard error. The returned intervals are marginal, not simultaneous bands.
+{cmd:se_fixed} is a standard error calculated by treating the selected restrictions
+as fixed, not a selection-adjusted standard error for a normal approximation.
+The returned intervals are marginal, not simultaneous bands.
 The command does not return a conventional covariance matrix for the nonlinear
 selected estimator. See {help jwselect} for identification and covariance-input
 requirements and the numerical inference procedure.

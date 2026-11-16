@@ -1,4 +1,4 @@
-*! jwselect 0.9.0 04nov2026: read-only linear/nonlinear jwdid adapter
+*! jwselect 0.9.1 16nov2026: read-only linear/nonlinear jwdid adapter
 program define _jwselect_jwdid, rclass
     version 15.1
     syntax [, VCE(string)]

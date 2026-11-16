@@ -1,4 +1,4 @@
-*! jwselect estat 0.9.0 04nov2026
+*! jwselect estat 0.9.1 16nov2026
 program define jwselect_estat, rclass
     version 16.1
     if "`e(cmd)'" != "jwselect" error 301
@@ -6,6 +6,11 @@ program define jwselect_estat, rclass
     if "`subcmd'" == "" local subcmd design
     if "`subcmd'" == "pretrend" {
         _jwselect_pretrend `rest'
+        return add
+        exit
+    }
+    if "`subcmd'" == "compare" {
+        _jwselect_compare `rest'
         return add
         exit
     }
@@ -93,7 +98,8 @@ program define jwselect_estat, rclass
             }
             di as txt "WBIC calibration: `e(wbicmethod)'"
             if "`e(wbicmethod)'"=="mc" {
-                di as txt "Mode: `e(mcmode)'; certified=1 means a continuum certificate or exact no-restriction normal inference."
+                di as txt "Mode: `e(mcmode)'; certified=1 is a continuum-calibration diagnostic or exact no-restriction normal inference."
+                di as txt "The label is not a formal outward-rounded floating-point certificate; see the documented numerical limits."
                 di as txt "Status: 0 calibrated grid; 1 skipped; 2 normal; 7 analytic terminal; 8 whole real line."
                 di as txt "rule_fallback=1 means the baseline-containing safeguard of the calibrated rule."
                 matlist e(mc_diagnostics), format(%12.5g)
@@ -127,6 +133,7 @@ program define jwselect_estat, rclass
             else if "`e(wbicmethod)'"=="bootstrap" {
                 di as txt "Centered reselection bootstrap-t: signed quantiles are in standard-error units."
                 di as txt "Gaussian draws: `e(wbicengine)' engine. CIs are equal-tailed."
+                di as txt "Finite draws approximate pointwise asymptotic quantiles; no higher-order refinement is established."
                 di as txt "Adjustment is the observed selected estimate minus its baseline estimate."
                 di as txt "Status: 0 computed, 2 exact normal with no restrictions, 9 skipped."
                 matlist e(wbic_pointwise_diagnostics), format(%12.5g)
@@ -153,7 +160,7 @@ program define jwselect_estat, rclass
         local copyto b V_fixed
     }
     else {
-        di as err "estat subcommands: design, selection, scores, covariance, cells, inference, pretrend"
+        di as err "estat subcommands: design, selection, scores, covariance, cells, inference, pretrend, compare"
         exit 198
     }
     // return matrix requires an ordinary matrix name, not an e() expression.
@@ -166,6 +173,58 @@ program define jwselect_estat, rclass
         matrix `result' = e(`source')
         return matrix `destination' = `result'
     }
+end
+
+program define _jwselect_compare, rclass
+    version 16.1
+    syntax [, CELLS OUTput(numlist integer min=1 max=1 >0)]
+    if "`e(cmd)'" != "jwselect" error 301
+    if e(scalar_target)==1 {
+        di as err "estat compare requires disaggregated cohort cells; this source supplies one population target"
+        exit 198
+    }
+    if "`cells'"!="" & "`output'"!="" {
+        di as err "cells and output() are mutually exclusive"
+        exit 198
+    }
+    if "`output'"=="" local output 0
+    if `output'>colsof(e(b)) {
+        di as err "output() is outside e(output_map)"
+        exit 198
+    }
+    quietly _jwselect_load
+    capture mata: assert(findexternal("jw_compare_stata()")!=NULL)
+    if _rc {
+        quietly findfile _jwselect_compare.mata
+        quietly do `"`r(fn)'"'
+    }
+    tempname table Vbaseline Vown Vjoint Abaseline Aown Ajoint mask map
+    mata: jw_compare_stata()
+    di as txt "Matched baseline, own-cohort MD, and joint MD estimates"
+    di as txt "Own and joint MD use the same selected configuration; targets and weights are held fixed."
+    di as txt "SEs are fixed-selection diagnostics; this table supplies no selection-adjusted inference."
+    if "`e(selection_method)'"=="focused" {
+        if "`e(focus)'"=="aggregate" di as txt "All rows retain the configuration selected for the aggregate target."
+        else {
+            di as txt "Primary joint comparisons use the union of the primary cohort selections."
+            if "`e(focus)'"=="both" di as txt "The independently aggregate-focused row retains its own selected configuration."
+        }
+        di as txt "The comparison does not extend focused inference guarantees to a different target or estimator."
+    }
+    matlist `table', format(%12.5g)
+    return matrix table = `table'
+    return matrix V_baseline = `Vbaseline'
+    return matrix V_own = `Vown'
+    return matrix V_joint = `Vjoint'
+    return matrix loading_baseline = `Abaseline'
+    return matrix loading_own = `Aown'
+    return matrix loading_joint = `Ajoint'
+    if e(K)>0 return matrix selection = `mask'
+    if "`cells'"!="" return matrix postmap = `map'
+    else return matrix output_map = `map'
+    return scalar output = `output'
+    return scalar cells = ("`cells'"!="")
+    return local inference "fixed_selection_diagnostics"
 end
 
 program define _jwselect_pretrend, rclass
